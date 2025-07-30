@@ -58,7 +58,7 @@
                     <p id="fileNameDueIn">Retours Attendus : aucun fichier</p>
                 </div>
             </label>
-            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls" multiple>
+            <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls,.csv" multiple>
             <div id="loading-spinner" class="hidden absolute inset-0 flex items-center justify-center rounded-lg">
                 <svg class="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke-width="4"></circle>
@@ -177,7 +177,7 @@
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        const wb = XLSX.read(e.target.result, { type: 'binary' });
+                        const wb = XLSX.read(e.target.result, { type: 'array' });
                         const ws = wb.Sheets[wb.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(ws, { defval: "" });
                         const headers = Object.keys(jsonData[0] || {}).map(h => h.toLowerCase().trim());
@@ -188,7 +188,7 @@
                     } catch (err) { reject(err); }
                 };
                 reader.onerror = (err) => reject(err);
-                reader.readAsBinaryString(file);
+                reader.readAsArrayBuffer(file);
             });
         }
 
