@@ -19,9 +19,18 @@
         .main-tab.active { border-bottom-color: #4f46e5; color: #4f46e5; }
         .sub-tab { transition: all 0.3s ease; border-bottom: 2px solid transparent; }
         .sub-tab.active { border-bottom-color: #6366f1; color: #4338ca; }
-        .file-drop-zone { border: 2px dashed #d1d5db; transition: all 0.2s ease-in-out; }
+        .file-drop-zone {
+            border: 2px dashed #d1d5db;
+            transition: all 0.2s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .file-drop-zone:hover { border-color: #6366f1; background-color: #eef2ff; }
         .file-drop-zone.loaded { border-color: #22c55e; background-color: #f0fdf4; }
         .dark .file-drop-zone { border-color: #475569; background-color: #1e293b; }
+        .dark .file-drop-zone:hover { border-color: #818cf8; background-color: #334155; }
         .card { background: #ffffff; border-radius: 12px; border: 2px solid #e2e8f0; transition: all 0.3s ease; position: relative; }
         .dark .card { background: #1e293b; border-color: #334155; }
         .card-content { cursor: pointer; }
@@ -50,16 +59,15 @@
         </header>
 
         <div class="bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm relative">
-            <label for="fileInput" class="file-drop-zone rounded-lg p-6 text-center cursor-pointer">
-                <svg class="mx-auto h-10 w-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                <p class="mt-2 font-semibold text-slate-700 dark:text-slate-200">Sélectionner les 2 fichiers</p>
+            <label class="file-drop-zone rounded-lg p-8 text-center cursor-pointer transition-colors bg-slate-50 dark:bg-slate-700">
+                <input type="file" id="fileInput" class="hidden" accept=".csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" multiple>
+                <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                <p class="mt-3 font-semibold text-slate-700 dark:text-slate-200">Sélectionner les 2 fichiers</p>
                 <div id="file-names" class="mt-2 text-xs text-slate-500">
                     <p id="fileNameAvailable">Parc Disponible : aucun fichier</p>
                     <p id="fileNameDueIn">Retours Attendus : aucun fichier</p>
                 </div>
             </label>
-            <!-- Autorise aussi la sélection des fichiers Excel -->
-            <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls,.csv" multiple>
             <div id="loading-spinner" class="hidden absolute inset-0 flex items-center justify-center rounded-lg">
                 <svg class="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke-width="4"></circle>
