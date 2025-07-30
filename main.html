@@ -49,30 +49,282 @@
 
         <div id="tabs-container" class="mt-8 border-b border-slate-200 hidden"></div>
         <div id="dashboards-content" class="mt-6">
-
-            <div id="placeholder" class="col-span-full text-center py-12 bg-white rounded-lg border border-slate-200">
+             <div id="placeholder" class="col-span-full text-center py-12 bg-white rounded-lg border border-slate-200">
                 <h3 class="text-sm font-medium text-slate-900">En attente de votre fichier...</h3>
             </div>
         </div>
-
+        
         <div id="reset-container" class="text-center mt-8 hidden">
             <button id="reset-button" class="text-xs text-slate-500 hover:text-slate-700 hover:underline">Réinitialiser les vérifications</button>
         </div>
     </div>
 
-    <div id="modal-overlay" class="fixed inset-0 z-50 flex items-center justify-center hidden">
-        <div class="modal-box bg-white rounded-lg shadow-xl w-11/12 max-w-6xl flex flex-col">
-            <div class="flex justify-between items-center p-4 border-b">
-                <h2 id="modal-title" class="text-xl font-bold text-slate-900"></h2>
-                <button id="close-modal" class="text-slate-500 hover:text-slate-800 text-3xl">&times;</button>
-            </div>
-            <div id="modal-content" class="p-2 sm:p-4 overflow-y-auto"></div>
-        </div>
-    </div>
+    <div id="modal-overlay" class="fixed inset-0 z-50 flex items-center justify-center hidden"><div class="modal-box bg-white rounded-lg shadow-xl w-11/12 max-w-6xl flex flex-col"><div class="flex justify-between items-center p-4 border-b"><h2 id="modal-title" class="text-xl font-bold text-slate-900"></h2><button id="close-modal" class="text-slate-500 hover:text-slate-800 text-3xl">&times;</button></div><div id="modal-content" class="p-2 sm:p-4 overflow-y-auto"></div></div></div>
 
     <script>
-        // JavaScript code from previous message (unchanged for brevity)
-        // You can paste the entire script from above here
+        const DOM = {
+            fileInput: document.getElementById('fileInput'),
+            fileNameSpan: document.getElementById('fileName'),
+            dashboardsContent: document.getElementById('dashboards-content'),
+            placeholder: document.getElementById('placeholder'),
+            tabsContainer: document.getElementById('tabs-container'),
+            resetContainer: document.getElementById('reset-container'),
+            resetButton: document.getElementById('reset-button'),
+            modalOverlay: document.getElementById('modal-overlay'),
+            modalTitle: document.getElementById('modal-title'),
+            modalContent: document.getElementById('modal-content'),
+            closeModalBtn: document.getElementById('close-modal'),
+        };
+
+        let vehicleData = [];
+        let availability = JSON.parse(localStorage.getItem('vehicleAvailability_v4')) || {};
+        let classVerification = JSON.parse(localStorage.getItem('classVerification_v4')) || {};
+        let currentReportType = null;
+        let columnMapping = {};
+
+        const REPORT_DEFINITIONS = {
+            available: { id: 'available', name: 'Parc Disponible', unique_cols: ['curr fuel', 'vin #'], required_cols: ['class', 'plate', 'unit #', 'model', 'vin #', 'kms', 'curr fuel'] },
+            dueIn: { id: 'dueIn', name: 'Retours Attendus', unique_cols: ['expected return', 'days late'], required_cols: ['class', 'unit #', 'model', 'contract #', 'expected return', 'days late', 'name', 'current location'] }
+        };
+
+        DOM.fileInput.addEventListener('change', handleFileSelect);
+        DOM.closeModalBtn.addEventListener('click', () => DOM.modalOverlay.classList.add('hidden'));
+        DOM.modalOverlay.addEventListener('click', (e) => { if (e.target === DOM.modalOverlay) DOM.modalOverlay.classList.add('hidden'); });
+        DOM.resetButton.addEventListener('click', () => {
+            if (confirm("Êtes-vous sûr de vouloir réinitialiser toutes les coches de vérification ?")) {
+                availability = {};
+                classVerification = {};
+                localStorage.removeItem('vehicleAvailability_v4');
+                localStorage.removeItem('classVerification_v4');
+                renderAll();
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                DOM.fileNameSpan.textContent = file.name;
+                const fileExtension = file.name.split('.').pop().toLowerCase();
+                if (fileExtension === 'csv') Papa.parse(file, { header: true, skipEmptyLines: true, complete: (r) => processData(r.data), error: (e) => handleError(e, "CSV") });
+                else if (['xlsx', 'xls'].includes(fileExtension)) parseExcel(file);
+                else alert("Format de fichier non supporté.");
+            }
+        }
+
+        function parseExcel(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const wb = XLSX.read(e.target.result, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    processData(XLSX.utils.sheet_to_json(ws, {defval:""}));
+                } catch (err) { handleError(err, "Excel"); }
+            };
+            reader.readAsBinaryString(file);
+        }
+        function handleError(error, type) { console.error(`Erreur (${type}):`, error); alert(`Erreur lors de la lecture du fichier ${type}.`); }
+
+        function findHeader(headers, possibleName) {
+            const lowerHeaders = headers.map(h => String(h || '').toLowerCase().trim());
+            const index = lowerHeaders.indexOf(possibleName);
+            return index !== -1 ? headers[index] : null;
+        }
+
+        function processData(data) {
+            if (!data || data.length === 0) return alert("Le fichier est vide ou illisible.");
+            
+            const headers = Object.keys(data[0]);
+            
+            let detectedReport = null;
+            for (const key in REPORT_DEFINITIONS) {
+                const def = REPORT_DEFINITIONS[key];
+                if (def.unique_cols.every(col => findHeader(headers, col))) {
+                    detectedReport = def;
+                    break;
+                }
+            }
+
+            if (!detectedReport) {
+                return alert("Type de rapport non reconnu. Veuillez charger un fichier 'Parc Disponible' ou 'Retours Attendus' valide.\n\nColonnes trouvées: " + headers.join(', '));
+            }
+            
+            currentReportType = detectedReport.id;
+            columnMapping = {};
+            let missingCols = [];
+            
+            detectedReport.required_cols.forEach(colName => {
+                const foundHeader = findHeader(headers, colName);
+                if (foundHeader) {
+                    columnMapping[colName.replace(/[^a-zA-Z0-9]/g, '')] = foundHeader;
+                } else {
+                    missingCols.push(colName);
+                }
+            });
+
+            if (missingCols.length > 0) {
+                return alert(`Fichier reconnu comme '${detectedReport.name}' mais il manque les colonnes essentielles: ${missingCols.join(', ')}`);
+            }
+
+            vehicleData = data.filter(row => row[columnMapping.class] && row[columnMapping.model] && !Object.values(row).some(val => String(val).includes('Units For') || String(val).includes('GRAND TOTAL')));
+
+            if (vehicleData.length === 0) {
+                return alert("Aucune donnée de véhicule valide n'a été trouvée dans le fichier après nettoyage. Veuillez vérifier le contenu.");
+            }
+
+            setupUI();
+            renderAll();
+        }
+
+        function setupUI() {
+            DOM.tabsContainer.innerHTML = '';
+            DOM.dashboardsContent.innerHTML = '';
+            DOM.tabsContainer.classList.remove('hidden');
+            DOM.resetContainer.classList.remove('hidden');
+
+            if (currentReportType === 'available') {
+                DOM.tabsContainer.innerHTML = `<nav class="flex -mb-px space-x-6"><button data-tab="class" class="tab-button active">Vue par Classe</button><button data-tab="fuel" class="tab-button flex items-center space-x-2"><span>Alerte Carburant</span><span id="fuel-alert-badge" class="hidden bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 items-center justify-center">0</span></button></nav>`;
+                DOM.dashboardsContent.innerHTML = `<div id="class-dashboard" class="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div><div id="fuel-dashboard" class="mt-6 hidden"></div>`;
+            } else if (currentReportType === 'dueIn') {
+                DOM.tabsContainer.innerHTML = `<nav class="flex -mb-px space-x-6"><button data-tab="location" class="tab-button active">Vue par Agence</button><button data-tab="late" class="tab-button flex items-center space-x-2"><span>Alerte Retards</span><span id="late-alert-badge" class="hidden bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 items-center justify-center">0</span></button></nav>`;
+                DOM.dashboardsContent.innerHTML = `<div id="location-dashboard" class="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div><div id="late-dashboard" class="mt-6 hidden"></div>`;
+            }
+            
+            DOM.tabsContainer.querySelectorAll('.tab-button').forEach(btn => btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab)));
+            switchTab(DOM.tabsContainer.querySelector('.tab-button.active').dataset.tab);
+        }
+
+        function switchTab(tabName) {
+            DOM.tabsContainer.querySelectorAll('.tab-button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+            Array.from(DOM.dashboardsContent.children).forEach(el => el.classList.toggle('hidden', !el.id.startsWith(tabName)));
+        }
+        
+        function renderAll() {
+            if (currentReportType === 'available') {
+                displayClassDashboard();
+                displayLowFuelDashboard();
+            } else if (currentReportType === 'dueIn') {
+                displayLocationDashboard();
+                displayLateReturnsDashboard();
+            }
+        }
+
+        function displayClassDashboard() {
+            const container = document.getElementById('class-dashboard');
+            const counts = vehicleData.reduce((acc, v) => {
+                const cat = v[columnMapping.class];
+                if(cat) {
+                    if(!acc[cat]) acc[cat] = { total: 0, present: 0 };
+                    acc[cat].total++;
+                    if(availability[v[columnMapping.vin]]) acc[cat].present++;
+                }
+                return acc;
+            }, {});
+            container.innerHTML = '';
+            Object.entries(counts).sort((a,b) => b[1].total - a[1].total).forEach(([cat, {total, present}]) => {
+                const isVerified = classVerification[cat] || false;
+                const card = document.createElement('div');
+                card.className = `card p-4 ${isVerified ? 'verified' : ''}`;
+                card.innerHTML = `<div class="card-check" data-category="${cat}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg></div><div class="card-content" data-filter="${cat}"><h3 class="font-semibold text-md capitalize text-slate-900">${cat}</h3><div class="text-right mt-2"><span class="text-3xl font-bold text-slate-900">${present}</span><span class="text-xl font-semibold text-slate-500">/ ${total}</span></div></div>`;
+                card.querySelector('.card-content').addEventListener('click', () => openModal(cat));
+                card.querySelector('.card-check').addEventListener('click', (e) => { e.stopPropagation(); toggleClassVerification(cat); });
+                container.appendChild(card);
+            });
+        }
+
+        function displayLowFuelDashboard() {
+            const container = document.getElementById('fuel-dashboard');
+            const lowFuelVehicles = vehicleData.filter(v => v[columnMapping.currfuel] && String(v[columnMapping.currfuel]).trim().toUpperCase() !== 'F');
+            const badge = document.getElementById('fuel-alert-badge');
+            badge.textContent = lowFuelVehicles.length;
+            badge.classList.toggle('hidden', lowFuelVehicles.length === 0);
+            container.innerHTML = lowFuelVehicles.length === 0 ? `<div class="text-center py-12 bg-white rounded-lg border"><h3 class="text-sm font-medium">Aucune alerte carburant</h3></div>` : createVehicleTable(lowFuelVehicles, {'Matricule': 'plate', 'Modèle': 'model', 'Carburant': 'currfuel'});
+            container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
+        }
+
+        function displayLocationDashboard() {
+            const container = document.getElementById('location-dashboard');
+            const counts = vehicleData.reduce((acc, v) => {
+                const loc = v[columnMapping.currentlocation];
+                if(loc) {
+                    if(!acc[loc]) acc[loc] = { total: 0, late: 0 };
+                    acc[loc].total++;
+                    if(parseInt(v[columnMapping.dayslate]) > 0) acc[loc].late++;
+                }
+                return acc;
+            }, {});
+            container.innerHTML = '';
+            Object.entries(counts).sort((a,b) => b[1].total - a[1].total).forEach(([loc, {total, late}]) => {
+                const card = document.createElement('div');
+                card.className = 'card p-4 card-content';
+                card.dataset.filter = loc;
+                card.innerHTML = `<h3 class="font-semibold text-md capitalize text-slate-900">${loc}</h3><div class="text-right mt-2"><span class="text-3xl font-bold text-slate-900">${total}</span><p class="text-xs ${late > 0 ? 'text-red-500 font-bold' : 'text-slate-500'}">${late} en retard</p></div>`;
+                card.addEventListener('click', () => openModal(loc));
+                container.appendChild(card);
+            });
+        }
+        
+        function displayLateReturnsDashboard() {
+            const container = document.getElementById('late-dashboard');
+            const lateVehicles = vehicleData.filter(v => parseInt(v[columnMapping.dayslate]) > 0);
+            const badge = document.getElementById('late-alert-badge');
+            badge.textContent = lateVehicles.length;
+            badge.classList.toggle('hidden', lateVehicles.length === 0);
+            container.innerHTML = lateVehicles.length === 0 ? `<div class="text-center py-12 bg-white rounded-lg border"><h3 class="text-sm font-medium">Aucun retard</h3></div>` : createVehicleTable(lateVehicles, {'Unité #': 'unit', 'Modèle': 'model', 'Client': 'name', 'Jours en Retard': 'dayslate'});
+            container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
+        }
+
+        function openModal(filterValue) {
+            let filteredVehicles, tableHeaders;
+            if (currentReportType === 'available') {
+                DOM.modalTitle.textContent = `Détails Classe : ${filterValue}`;
+                filteredVehicles = vehicleData.filter(v => v[columnMapping.class] === filterValue);
+                tableHeaders = {'Matricule': 'plate', 'Unité #': 'unit', 'Modèle': 'model', 'Kms': 'kms', 'Carburant': 'currfuel'};
+            } else {
+                DOM.modalTitle.textContent = `Retours Attendus : ${filterValue}`;
+                filteredVehicles = vehicleData.filter(v => v[columnMapping.currentlocation] === filterValue);
+                tableHeaders = {'Unité #': 'unit', 'Modèle': 'model', 'Client': 'name', 'Retour Prévu': 'expectedreturn', 'Jours en Retard': 'dayslate'};
+            }
+            DOM.modalContent.innerHTML = createVehicleTable(filteredVehicles, tableHeaders, true);
+            DOM.modalContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
+            DOM.modalOverlay.classList.remove('hidden');
+        }
+        
+        function createVehicleTable(vehicles, headers, isModal = true) {
+            const headHTML = Object.keys(headers).map(h => `<th class="px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase">${h}</th>`).join('') + `<th class="px-2 py-2 text-center text-xs font-medium text-slate-500 uppercase">${isModal ? 'Présent' : 'Vérifié'}</th>`;
+            const bodyHTML = vehicles.map(v => {
+                const key = v[columnMapping.vin] || v[columnMapping.contract];
+                const isChecked = availability[key] || false;
+                let rowClass = isChecked ? 'checked-row' : '';
+                if (currentReportType === 'dueIn' && parseInt(v[columnMapping.dayslate]) > 0) rowClass += ' late-vehicle';
+                
+                const cellHTML = Object.values(headers).map(colKey => {
+                    let cellValue = v[columnMapping[colKey]] || 'N/A';
+                    let cellClass = 'px-2 py-3 text-sm';
+                    if(colKey === 'dayslate' && parseInt(cellValue) > 0) cellClass += ' font-bold text-red-600';
+                    if(colKey === 'currfuel' && String(cellValue).toUpperCase() !== 'F') cellClass += ' font-bold text-amber-600';
+                    return `<td class="${cellClass}">${cellValue}</td>`;
+                }).join('');
+
+                return `<tr class="${rowClass}">${cellHTML}<td class="px-2 py-3 text-center"><input type="checkbox" data-key="${key}" class="h-5 w-5 rounded border-gray-300 text-indigo-600" ${isChecked ? 'checked' : ''}></td></tr>`;
+            }).join('');
+            
+            return `<div class="bg-white rounded-lg ${isModal ? '' : 'shadow-sm border'} overflow-hidden"><table class="min-w-full divide-y divide-slate-200"><thead class="bg-slate-50"><tr>${headHTML}</tr></thead><tbody class="bg-white divide-y divide-slate-200">${bodyHTML}</tbody></table></div>`;
+        }
+
+        function handleCheckboxChange(event) {
+            const checkbox = event.target;
+            const key = checkbox.dataset.key;
+            if (checkbox.checked) availability[key] = true;
+            else delete availability[key];
+            localStorage.setItem('vehicleAvailability_v4', JSON.stringify(availability));
+            renderAll();
+        }
+
+        function toggleClassVerification(category) {
+            classVerification[category] = !classVerification[category];
+            localStorage.setItem('classVerification_v4', JSON.stringify(classVerification));
+            renderAll();
+        }
     </script>
 </body>
 </html>
