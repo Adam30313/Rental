@@ -35,7 +35,8 @@
         </header>
 
         <div class="bg-white p-4 sm:p-6 rounded-lg border border-slate-200 shadow-sm">
-            <label for="fileInput" class="file-drop-zone rounded-lg p-6 text-center cursor-pointer">
+            <label class="file-drop-zone rounded-lg p-6 text-center cursor-pointer">
+                <input type="file" id="fileInput" class="sr-only" multiple>
                 <svg class="mx-auto h-10 w-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
                 <p class="mt-2 font-semibold text-slate-700">Sélectionner les 2 fichiers</p>
                 <div id="file-names" class="mt-2 text-xs text-slate-500">
@@ -43,7 +44,6 @@
                     <p id="fileNameDueIn">Retours Attendus : aucun fichier</p>
                 </div>
             </label>
-            <input type="file" id="fileInput" class="sr-only" multiple>
         </div>
 
         <div id="main-tabs-container" class="mt-8 border-b border-slate-300 hidden"></div>
