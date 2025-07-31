@@ -132,7 +132,7 @@
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        const wb = XLSX.read(e.target.result, { type: 'binary' });
+                const wb = XLSX.read(e.target.result, { type: 'array' });
                         const ws = wb.Sheets[wb.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(ws, { defval: "" });
                         const headers = Object.keys(jsonData[0] || {}).map(h => h.toLowerCase().trim());
@@ -143,7 +143,7 @@
                     } catch (err) { reject(err); }
                 };
                 reader.onerror = (err) => reject(err);
-                reader.readAsBinaryString(file);
+                reader.readAsArrayBuffer(file);
             });
         }
 
