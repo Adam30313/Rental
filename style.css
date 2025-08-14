@@ -1,10 +1,13 @@
-body { font-family: 'Inter', sans-serif; }
-.kpi-card { background:#fff; border-radius:.75rem; padding:1.5rem; box-shadow:0 4px 6px -1px rgb(0 0 0 / .1), 0 2px 4px -2px rgb(0 0 0 / .1); transition:transform .2s; }
-.kpi-card:hover { transform: translateY(-5px); }
-.chart-container { position:relative; height:300px; }
-.status-indicator { transition: color .3s; }
-.assigned-select { padding:.25rem .5rem; border-radius:.375rem; border:1px solid #D1D5DB; background:#fff; width:100%; }
+body { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji'; }
+
+.chart-container { position: relative; height: 300px; }
+
+.kpi-card { background: white; padding: 1rem 1.25rem; border-radius: 0.75rem; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+
 /* Modal */
-.modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:50; }
-.modal-overlay.show{ display:flex; }
-.modal-content{ background:#fff; padding:1.25rem; border-radius:.75rem; width:min(900px,92vw); max-height:90vh; overflow:auto; box-shadow:0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1); }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+.modal-overlay.show { display: flex; }
+.modal-content { background: #fff; border-radius: 0.75rem; padding: 1rem; width: min(100%, 900px); max-height: 85vh; overflow: auto; }
+
+/* Nouvel indicateur carburant dans 'Disponibilité par Catégorie' */
+.fuel-icon{ margin-left:6px; font-size:12px; line-height:1; vertical-align:middle; color:#ef4444; } /* rouge léger */
