@@ -1,348 +1,182 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard de Gestion (2 Vues)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .main-tab { transition: all 0.3s ease; border-bottom: 3px solid transparent; }
-        .main-tab.active { border-bottom-color: #4f46e5; color: #4f46e5; }
-        .sub-tab { transition: all 0.3s ease; border-bottom: 2px solid transparent; }
-        .sub-tab.active { border-bottom-color: #6366f1; color: #4338ca; }
-        .file-drop-zone { border: 2px dashed #d1d5db; transition: all 0.2s ease-in-out; }
-        .file-drop-zone.loaded { border-color: #22c55e; background-color: #f0fdf4; }
-        .card { background: #ffffff; border-radius: 12px; border: 2px solid #e2e8f0; transition: all 0.3s ease; position: relative; }
-        .card-content { cursor: pointer; }
-        .card.verified { border-color: #22c55e; }
-        .card-check { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 99px; display: flex; align-items: center; justify-content: center; cursor: pointer; background-color: #f1f5f9; color: #94a3b8; }
-        .card.verified .card-check { background-color: #22c55e; color: white; }
-        #modal-overlay { background-color: rgba(0, 0, 0, 0.6); }
-        .modal-box { max-height: 85vh; }
-        .checked-row td { text-decoration: line-through; color: #94a3b8; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tableau de Bord de Location de Voitures</title>
+
+  <!-- TailwindCSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- XLSX (lecture .xlsx) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
 </head>
-<body class="text-slate-800">
 
-    <div class="container mx-auto p-4 max-w-7xl">
-        <header class="text-center mb-6">
-            <h1 class="text-3xl font-bold text-slate-900">Dashboard de Gestion</h1>
-        </header>
+<body class="bg-gray-100 text-gray-800">
 
-        <div class="bg-white p-4 sm:p-6 rounded-lg border border-slate-200 shadow-sm">
-            <label for="fileInput" class="file-drop-zone rounded-lg p-6 text-center cursor-pointer">
-                <svg class="mx-auto h-10 w-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                <p class="mt-2 font-semibold text-slate-700">Sélectionner les 2 fichiers</p>
-                <div id="file-names" class="mt-2 text-xs text-slate-500">
-                    <p id="fileNameAvailable">Parc Disponible : aucun fichier</p>
-                    <p id="fileNameDueIn">Retours Attendus : aucun fichier</p>
-                </div>
-            </label>
-            <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls" multiple>
-        </div>
+  <!-- DETAIL MODAL -->
+  <div id="detailModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="flex items-start justify-between mb-4">
+        <h3 id="detailTitle" class="text-lg font-semibold">Détails</h3>
+        <button id="detailClose" class="px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200">Fermer</button>
+      </div>
+      <div id="detailBody" class="space-y-4"><!-- dynamic --></div>
+    </div>
+  </div>
 
-        <div id="main-tabs-container" class="mt-8 border-b border-slate-300 hidden"></div>
-        <div id="main-content-container" class="mt-6">
-             <div id="placeholder" class="text-center py-12 bg-white rounded-lg border border-slate-200">
-                <h3 class="text-sm font-medium text-slate-900">En attente des deux fichiers...</h3>
-            </div>
-        </div>
-        
-        <div id="reset-container" class="text-center mt-8 hidden">
-            <button id="reset-button" class="text-xs text-slate-500 hover:text-slate-700 hover:underline">Réinitialiser les vérifications</button>
-        </div>
+  <div class="container mx-auto p-4 md:p-8">
+    <header class="text-center mb-8">
+      <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Tableau de Bord de Location de Voitures</h1>
+      <p class="text-gray-600 mt-2">Téléversez vos fichiers. Vous pouvez en sélectionner plusieurs à la fois.</p>
+    </header>
+
+    <!-- File Upload Section -->
+    <div class="bg-white p-6 rounded-xl shadow-md mb-8 max-w-2xl mx-auto">
+      <div class="flex flex-col items-center">
+        <label for="fileInput" class="block text-sm font-medium text-gray-700 mb-2">Choisir un ou plusieurs fichiers</label>
+        <input type="file" id="fileInput" class="block w-full max-w-md text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" multiple>
+      </div>
+      <div class="mt-6 flex justify-center items-center space-x-6 text-sm">
+        <span id="statusReservations" class="status-indicator text-gray-400">Réservations </span>
+        <span id="statusDueIn" class="status-indicator text-gray-400">Attendus </span>
+        <span id="statusAvailable" class="status-indicator text-gray-400">Disponibles </span>
+        <button id="resetButton" class="text-xs text-red-500 hover:text-red-700 ml-4">Réinitialiser</button>
+      </div>
     </div>
 
-    <div id="modal-overlay" class="fixed inset-0 z-50 flex items-center justify-center hidden"><div class="modal-box bg-white rounded-lg shadow-xl w-11/12 max-w-6xl flex flex-col"><div class="flex justify-between items-center p-4 border-b"><h2 id="modal-title" class="text-xl font-bold text-slate-900"></h2><button id="close-modal" class="text-slate-500 hover:text-slate-800 text-3xl">&times;</button></div><div id="modal-content" class="p-2 sm:p-4 overflow-y-auto"></div></div></div>
+    <!-- Dashboard Section -->
+    <div id="dashboard">
+      <!-- KPIs -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        <div class="kpi-card"><h3 class="text-gray-500 text-sm font-medium">Total des Réservations</h3><p id="totalReservations" class="text-3xl font-bold text-blue-600">0</p></div>
+        <div class="kpi-card"><h3 class="text-gray-500 text-sm font-medium">Véhicules Disponibles</h3><p id="vehiclesAvailable" class="text-3xl font-bold text-green-600">0</p></div>
+        <div class="kpi-card"><h3 class="text-gray-500 text-sm font-medium">Véhicules en Location</h3><p id="vehiclesOnRent" class="text-3xl font-bold text-yellow-600">0</p></div>
+        <div class="kpi-card"><h3 class="text-gray-500 text-sm font-medium">Véhicules en Retard</h3><p id="overdueVehicles" class="text-3xl font-bold text-red-600">0</p></div>
+        <div class="kpi-card"><h3 class="text-gray-500 text-sm font-medium">Revenu à Venir (7j)</h3><p id="upcomingRevenue" class="text-3xl font-bold text-purple-600">0 DH</p></div>
+      </div>
 
-    <script>
-        const DOM = {
-            fileInput: document.getElementById('fileInput'),
-            fileNameAvailable: document.getElementById('fileNameAvailable'),
-            fileNameDueIn: document.getElementById('fileNameDueIn'),
-            fileDropZone: document.querySelector('.file-drop-zone'),
-            mainTabsContainer: document.getElementById('main-tabs-container'),
-            mainContentContainer: document.getElementById('main-content-container'),
-            placeholder: document.getElementById('placeholder'),
-            resetContainer: document.getElementById('reset-container'),
-            resetButton: document.getElementById('reset-button'),
-            modalOverlay: document.getElementById('modal-overlay'),
-            modalTitle: document.getElementById('modal-title'),
-            modalContent: document.getElementById('modal-content'),
-            closeModalBtn: document.getElementById('close-modal'),
-        };
+      <!-- Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <div class="bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Statut de la Flotte</h3>
+          <div class="chart-container">
+            <canvas id="fleetStatusChart"></canvas>
+            <div id="fleetStatusPlaceholder" class="absolute inset-0 flex items-center justify-center"><p class="text-center text-gray-500">Veuillez téléverser les fichiers des véhicules attendus et/ou disponibles.</p></div>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Réservations par Classe</h3>
+          <div class="chart-container">
+            <canvas id="reservationsByClassChart"></canvas>
+            <div id="reservationsByClassPlaceholder" class="absolute inset-0 flex items-center justify-center"><p class="text-center text-gray-500">Veuillez téléverser le fichier des réservations.</p></div>
+          </div>
+        </div>
+      </div>
 
-        let availableData = null;
-        let dueInData = null;
-        let availability = JSON.parse(localStorage.getItem('vehicleAvailability_v6')) || {};
-        let classVerification = JSON.parse(localStorage.getItem('classVerification_v6')) || {};
-        let columnMapping = {};
+      <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold mb-4">Véhicules Attendus par Lieu (cliquer pour détails)</h3>
+        </div>
+        <div class="chart-container">
+          <canvas id="dueInByLocationChart"></canvas>
+          <div id="dueInByLocationPlaceholder" class="absolute inset-0 flex items-center justify-center"><p class="text-center text-gray-500">Veuillez téléverser le fichier des véhicules attendus.</p></div>
+        </div>
+      </div>
 
-        const REPORT_DEFINITIONS = {
-            available: { id: 'available', name: 'Parc Disponible', unique_cols: ['curr fuel', 'vin #'], required_cols: ['class', 'plate', 'unit #', 'model', 'vin #', 'kms', 'curr fuel'] },
-            dueIn: { id: 'dueIn', name: 'Retours Attendus', unique_cols: ['expected return', 'days late'], required_cols: ['class', 'unit #', 'model', 'contract #', 'expected return', 'days late', 'name', 'current location'] }
-        };
+      <!-- Busy Days (new) -->
+      <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+        <h3 class="text-lg font-semibold mb-4">Jours les plus chargés (Départs & Retours, 7 jours) – cliquer un jour</h3>
+        <p class="text-sm text-gray-500 mb-2">On additionne les événements (départs/retours) pour les heures qui ont > 1 événement ce jour.</p>
+        <div class="chart-container">
+          <canvas id="busyDaysChart"></canvas>
+          <div id="busyDaysPlaceholder" class="absolute inset-0 flex items-center justify-center"><p class="text-center text-gray-500">Téléversez au moins Réservations ou Attendus.</p></div>
+        </div>
+      </div>
 
-        DOM.fileInput.addEventListener('change', handleFileSelect);
-        DOM.closeModalBtn.addEventListener('click', () => DOM.modalOverlay.classList.add('hidden'));
-        DOM.modalOverlay.addEventListener('click', (e) => { if (e.target === DOM.modalOverlay) DOM.modalOverlay.classList.add('hidden'); });
-        DOM.resetButton.addEventListener('click', () => {
-            if (confirm("Êtes-vous sûr de vouloir réinitialiser toutes les coches de vérification ?")) {
-                availability = {}; classVerification = {};
-                localStorage.removeItem('vehicleAvailability_v6');
-                localStorage.removeItem('classVerification_v6');
-                renderAll();
-            }
-        });
+      <!-- Tables -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+        <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Réservations à Venir (7 prochains jours)</h3>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                <tr>
+                  <th class="px-4 py-3">Res #</th>
+                  <th class="px-4 py-3">Nom</th>
+                  <th class="px-4 py-3">Classe</th>
+                  <th class="px-4 py-3">Date</th>
+                  <th class="px-4 py-3">Prix</th>
+                  <th class="px-4 py-3">Véhicule Assigné</th>
+                </tr>
+              </thead>
+              <tbody id="upcomingReservationsTable"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Disponibilité par Catégorie</h3>
+          <div id="availabilityByCategory" class="overflow-x-auto max-h-96"></div>
+        </div>
+      </div>
 
-        async function handleFileSelect(event) {
-            const files = event.target.files;
-            if (files.length !== 2) return alert("Veuillez sélectionner exactement deux fichiers.");
-            
-            DOM.fileNameAvailable.textContent = "Parc Disponible : en lecture...";
-            DOM.fileNameDueIn.textContent = "Retours Attendus : en lecture...";
-            availableData = null; dueInData = null;
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Retours Attendus (7 prochains jours)</h3>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                <tr>
+                  <th class="px-4 py-3">Unit #</th>
+                  <th class="px-4 py-3">Modèle</th>
+                  <th class="px-4 py-3">Nom du Client</th>
+                  <th class="px-4 py-3">Date de Retour Prévue</th>
+                </tr>
+              </thead>
+              <tbody id="upcomingReturnsTable"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-md">
+          <h3 class="text-lg font-semibold mb-4">Véhicules en Retard</h3>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0">
+                <tr>
+                  <th class="px-4 py-3">Unit #</th>
+                  <th class="px-4 py-3">Modèle</th>
+                  <th class="px-4 py-3">Nom du Client</th>
+                  <th class="px-4 py-3">Jours de Retard</th>
+                </tr>
+              </thead>
+              <tbody id="overdueVehiclesTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
 
-            const filePromises = Array.from(files).map(readFile);
-            const results = await Promise.all(filePromises);
-            
-            results.forEach(result => {
-                if (result.type === 'available') { availableData = result.data; DOM.fileNameAvailable.textContent = `Parc Disponible : ${result.name}`; }
-                else if (result.type === 'dueIn') { dueInData = result.data; DOM.fileNameDueIn.textContent = `Retours Attendus : ${result.name}`; }
-            });
+    <div id="loading" class="text-center hidden mt-8">
+      <p class="text-lg font-semibold text-blue-600">Analyse du fichier...</p>
+    </div>
+    <div id="error" class="text-center hidden mt-8 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg" role="alert">
+      <strong class="font-bold">Erreur !</strong> <span id="errorMessage" class="sm:inline"></span>
+    </div>
+  </div>
 
-            if (availableData && dueInData) {
-                DOM.fileDropZone.classList.add('loaded');
-                processAndRender();
-            } else {
-                alert("Impossible d'identifier les deux types de fichiers. Assurez-vous d'avoir sélectionné un fichier 'Parc Disponible' et un fichier 'Retours Attendus' valides.");
-                DOM.fileDropZone.classList.remove('loaded');
-                DOM.fileNameAvailable.textContent = "Parc Disponible : aucun fichier";
-                DOM.fileNameDueIn.textContent = "Retours Attendus : aucun fichier";
-            }
-        }
-
-        function readFile(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const wb = XLSX.read(e.target.result, { type: 'binary' });
-                        const ws = wb.Sheets[wb.SheetNames[0]];
-                        const jsonData = XLSX.utils.sheet_to_json(ws, { defval: "" });
-                        const headers = Object.keys(jsonData[0] || {}).map(h => h.toLowerCase().trim());
-                        
-                        if (REPORT_DEFINITIONS.available.unique_cols.every(col => headers.includes(col))) resolve({ type: 'available', data: jsonData, name: file.name });
-                        else if (REPORT_DEFINITIONS.dueIn.unique_cols.every(col => headers.includes(col))) resolve({ type: 'dueIn', data: jsonData, name: file.name });
-                        else resolve({ type: 'unknown' });
-                    } catch (err) { reject(err); }
-                };
-                reader.onerror = (err) => reject(err);
-                reader.readAsBinaryString(file);
-            });
-        }
-
-        function findHeader(headers, possibleName) {
-            const lowerHeaders = headers.map(h => String(h || '').toLowerCase().trim());
-            const index = lowerHeaders.indexOf(possibleName);
-            return index !== -1 ? headers[index] : null;
-        }
-
-        function processAndRender() {
-            DOM.placeholder.classList.add('hidden');
-            DOM.mainTabsContainer.classList.remove('hidden');
-            DOM.resetContainer.classList.remove('hidden');
-            renderMainTabs();
-            switchMainTab('available');
-        }
-
-        function renderMainTabs() {
-            DOM.mainTabsContainer.innerHTML = `<nav class="flex -mb-px space-x-6"><button data-tab="available" class="main-tab active">Parc Disponible</button><button data-tab="dueIn" class="main-tab">Retours Attendus</button></nav>`;
-            DOM.mainTabsContainer.querySelectorAll('.main-tab').forEach(btn => btn.addEventListener('click', (e) => switchMainTab(e.currentTarget.dataset.tab)));
-        }
-
-        function switchMainTab(tabName) {
-            DOM.mainTabsContainer.querySelectorAll('.main-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
-            if (tabName === 'available') renderAvailableReport();
-            else renderDueInReport();
-        }
-        
-        function renderAll() { // Re-renders the currently active main tab
-            const activeTab = DOM.mainTabsContainer.querySelector('.main-tab.active')?.dataset.tab;
-            if (activeTab) switchMainTab(activeTab);
-        }
-
-        // --- AVAILABLE REPORT ---
-        function renderAvailableReport() {
-            DOM.mainContentContainer.innerHTML = `
-                <div id="available-subtabs" class="border-b border-slate-200"><nav class="flex -mb-px space-x-6"><button data-subtab="class" class="sub-tab active">Vue par Classe</button><button data-subtab="fuel" class="sub-tab flex items-center space-x-2"><span>Alerte Carburant</span><span id="fuel-alert-badge" class="hidden bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 items-center justify-center">0</span></button></nav></div>
-                <div id="class-dashboard" class="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
-                <div id="fuel-dashboard" class="mt-6 hidden"></div>`;
-            
-            DOM.mainContentContainer.querySelectorAll('.sub-tab').forEach(btn => btn.addEventListener('click', (e) => switchSubTab(e.currentTarget.dataset.subtab, 'available')));
-            displayClassDashboard();
-            displayLowFuelDashboard();
-        }
-
-        function displayClassDashboard() {
-            const container = document.getElementById('class-dashboard');
-            const mapping = {class: findHeader(Object.keys(availableData[0]), 'class'), vin: findHeader(Object.keys(availableData[0]), 'vin #')};
-            const counts = availableData.reduce((acc, v) => {
-                const cat = v[mapping.class];
-                if(cat) {
-                    if(!acc[cat]) acc[cat] = { total: 0, present: 0 };
-                    acc[cat].total++;
-                    if(availability[v[mapping.vin]]) acc[cat].present++;
-                }
-                return acc;
-            }, {});
-            container.innerHTML = '';
-            Object.entries(counts).sort((a,b) => b[1].total - a[1].total).forEach(([cat, {total, present}]) => {
-                const isVerified = classVerification[cat] || false;
-                const card = document.createElement('div');
-                card.className = `card p-4 ${isVerified ? 'verified' : ''}`;
-                card.innerHTML = `<div class="card-check" data-category="${cat}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg></div><div class="card-content" data-filter="${cat}"><h3 class="font-semibold text-md capitalize text-slate-900">${cat}</h3><div class="text-right mt-2"><span class="text-3xl font-bold text-slate-900">${present}</span><span class="text-xl font-semibold text-slate-500">/ ${total}</span></div></div>`;
-                card.querySelector('.card-content').addEventListener('click', () => openModal(cat, 'available'));
-                card.querySelector('.card-check').addEventListener('click', (e) => { e.stopPropagation(); toggleClassVerification(cat); });
-                container.appendChild(card);
-            });
-        }
-
-        function displayLowFuelDashboard() {
-            const container = document.getElementById('fuel-dashboard');
-            const mapping = {fuel: findHeader(Object.keys(availableData[0]), 'curr fuel')};
-            const lowFuelVehicles = availableData.filter(v => v[mapping.fuel] && String(v[mapping.fuel]).trim().toUpperCase() !== 'F');
-            const badge = document.getElementById('fuel-alert-badge');
-            badge.textContent = lowFuelVehicles.length;
-            badge.classList.toggle('hidden', lowFuelVehicles.length === 0);
-            container.innerHTML = lowFuelVehicles.length === 0 ? `<div class="text-center py-12 bg-white rounded-lg border"><h3 class="text-sm font-medium">Aucune alerte carburant</h3></div>` : createVehicleTable(lowFuelVehicles, {'Matricule': 'plate', 'Modèle': 'model', 'Carburant': 'curr fuel'}, 'available');
-            container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
-        }
-
-        // --- DUE IN REPORT ---
-        function renderDueInReport() {
-            DOM.mainContentContainer.innerHTML = `
-                <div id="duein-subtabs" class="border-b border-slate-200"><nav class="flex -mb-px space-x-6"><button data-subtab="location" class="sub-tab active">Vue par Ville</button><button data-subtab="late" class="sub-tab flex items-center space-x-2"><span>Alerte Retards</span><span id="late-alert-badge" class="hidden bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 items-center justify-center">0</span></button></nav></div>
-                <div id="location-dashboard" class="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
-                <div id="late-dashboard" class="mt-6 hidden"></div>`;
-            
-            DOM.mainContentContainer.querySelectorAll('.sub-tab').forEach(btn => btn.addEventListener('click', (e) => switchSubTab(e.currentTarget.dataset.subtab, 'dueIn')));
-            displayLocationDashboard();
-            displayLateReturnsDashboard();
-        }
-
-        function getLocationGroupName(loc) { if (!loc) return 'Inconnu'; const code = String(loc).toUpperCase(); if (code.startsWith('CMNO')) return 'Casa Aeroport'; if (code.startsWith('CMNC')) return 'Casa City'; if (code.startsWith('RAKO')) return 'Marrakech'; if (code.startsWith('AGAO')) return 'Agadir'; if (code.startsWith('TNGO')) return 'Tanger'; if (code.startsWith('FEZO')) return 'Fes'; if (code.startsWith('RBAO')) return 'Rabat'; return loc; }
-
-        function displayLocationDashboard() {
-            const container = document.getElementById('location-dashboard');
-            const mapping = {location: findHeader(Object.keys(dueInData[0]), 'current location'), dayslate: findHeader(Object.keys(dueInData[0]), 'days late')};
-            const cleanData = dueInData.filter(row => row[mapping.location]);
-            const counts = cleanData.reduce((acc, v) => {
-                const locGroup = getLocationGroupName(v[mapping.location]);
-                if(!acc[locGroup]) acc[locGroup] = { total: 0, late: 0 };
-                acc[locGroup].total++;
-                if(parseInt(v[mapping.dayslate]) > 0) acc[locGroup].late++;
-                return acc;
-            }, {});
-            container.innerHTML = '';
-            Object.entries(counts).sort((a,b) => b[1].total - a[1].total).forEach(([loc, {total, late}]) => {
-                const card = document.createElement('div');
-                card.className = 'card p-4 card-content';
-                card.dataset.filter = loc;
-                card.innerHTML = `<h3 class="font-semibold text-md capitalize text-slate-900">${loc}</h3><div class="text-right mt-2"><span class="text-3xl font-bold text-slate-900">${total}</span><p class="text-xs ${late > 0 ? 'text-red-500 font-bold' : 'text-slate-500'}">${late} en retard</p></div>`;
-                card.addEventListener('click', () => openModal(loc, 'dueIn'));
-                container.appendChild(card);
-            });
-        }
-        
-        function displayLateReturnsDashboard() {
-            const container = document.getElementById('late-dashboard');
-            const mapping = {dayslate: findHeader(Object.keys(dueInData[0]), 'days late')};
-            const lateVehicles = dueInData.filter(v => v[mapping.dayslate] && parseInt(v[mapping.dayslate]) > 0);
-            const badge = document.getElementById('late-alert-badge');
-            badge.textContent = lateVehicles.length;
-            badge.classList.toggle('hidden', lateVehicles.length === 0);
-            container.innerHTML = lateVehicles.length === 0 ? `<div class="text-center py-12 bg-white rounded-lg border"><h3 class="text-sm font-medium">Aucun retard</h3></div>` : createVehicleTable(lateVehicles, {'Unité #': 'unit #', 'Modèle': 'model', 'Client': 'name', 'Jours en Retard': 'days late'}, 'dueIn');
-            container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
-        }
-
-        // --- SHARED LOGIC ---
-        function switchSubTab(subTabName, reportType) {
-            const container = (reportType === 'available') ? '#available-subtabs' : '#duein-subtabs';
-            document.querySelectorAll(`${container} .sub-tab`).forEach(btn => btn.classList.toggle('active', btn.dataset.subtab === subTabName));
-            if (reportType === 'available') {
-                document.getElementById('class-dashboard').classList.toggle('hidden', subTabName !== 'class');
-                document.getElementById('fuel-dashboard').classList.toggle('hidden', subTabName !== 'fuel');
-            } else {
-                document.getElementById('location-dashboard').classList.toggle('hidden', subTabName !== 'location');
-                document.getElementById('late-dashboard').classList.toggle('hidden', subTabName !== 'late');
-            }
-        }
-
-        function openModal(filterValue, reportType) {
-            let filteredVehicles, tableHeaders;
-            if (reportType === 'available') {
-                const mapping = {class: findHeader(Object.keys(availableData[0]), 'class')};
-                DOM.modalTitle.textContent = `Détails Classe : ${filterValue}`;
-                filteredVehicles = availableData.filter(v => v[mapping.class] === filterValue);
-                tableHeaders = {'Matricule': 'plate', 'Unité #': 'unit #', 'Modèle': 'model', 'Kms': 'kms', 'Carburant': 'curr fuel'};
-            } else { // dueIn
-                const mapping = {location: findHeader(Object.keys(dueInData[0]), 'current location')};
-                DOM.modalTitle.textContent = `Retours Attendus : ${filterValue}`;
-                filteredVehicles = dueInData.filter(v => getLocationGroupName(v[mapping.location]) === filterValue);
-                tableHeaders = {'Agence': 'current location', 'Unité #': 'unit #', 'Modèle': 'model', 'Client': 'name', 'Retour Prévu': 'expected return', 'Jours en Retard': 'days late'};
-            }
-            DOM.modalContent.innerHTML = createVehicleTable(filteredVehicles, tableHeaders, reportType, true);
-            DOM.modalContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', handleCheckboxChange));
-            DOM.modalOverlay.classList.remove('hidden');
-        }
-        
-        function createVehicleTable(vehicles, headers, reportType, isModal = true) {
-            const data = (reportType === 'available') ? availableData : dueInData;
-            const mapping = {};
-            Object.values(headers).forEach(h => { mapping[h] = findHeader(Object.keys(data[0]), h); });
-            
-            const headHTML = Object.keys(headers).map(h => `<th class="px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase">${h}</th>`).join('') + `<th class="px-2 py-2 text-center text-xs font-medium text-slate-500 uppercase">${isModal ? 'Présent' : 'Vérifié'}</th>`;
-            const bodyHTML = vehicles.map(v => {
-                const key = v[findHeader(Object.keys(v), 'vin #')] || v[findHeader(Object.keys(v), 'contract #')];
-                const isChecked = availability[key] || false;
-                let rowClass = isChecked ? 'checked-row' : '';
-                if (reportType === 'dueIn' && parseInt(v[mapping['days late']]) > 0) rowClass += ' late-vehicle';
-                
-                const cellHTML = Object.values(headers).map(colKey => {
-                    let cellValue = v[mapping[colKey]] || 'N/A';
-                    let cellClass = 'px-2 py-3 text-sm';
-                    if(colKey === 'days late' && parseInt(cellValue) > 0) cellClass += ' font-bold text-red-600';
-                    if(colKey === 'curr fuel' && String(cellValue).toUpperCase() !== 'F') cellClass += ' font-bold text-amber-600';
-                    return `<td class="${cellClass}">${cellValue}</td>`;
-                }).join('');
-
-                return `<tr class="${rowClass}">${cellHTML}<td class="px-2 py-3 text-center"><input type="checkbox" data-key="${key}" class="h-5 w-5 rounded border-gray-300 text-indigo-600" ${isChecked ? 'checked' : ''}></td></tr>`;
-            }).join('');
-            
-            return `<div class="bg-white rounded-lg ${isModal ? '' : 'shadow-sm border'} overflow-hidden"><table class="min-w-full divide-y divide-slate-200"><thead class="bg-slate-50"><tr>${headHTML}</tr></thead><tbody class="bg-white divide-y divide-slate-200">${bodyHTML}</tbody></table></div>`;
-        }
-
-        function handleCheckboxChange(event) {
-            const checkbox = event.target;
-            const key = checkbox.dataset.key;
-            if (checkbox.checked) availability[key] = true;
-            else delete availability[key];
-            localStorage.setItem('vehicleAvailability_v6', JSON.stringify(availability));
-            renderAll();
-        }
-
-        function toggleClassVerification(category) {
-            classVerification[category] = !classVerification[category];
-            localStorage.setItem('classVerification_v6', JSON.stringify(classVerification));
-            renderAll();
-        }
-    </script>
+  <!-- Script principal (module) -->
+  <script type="module" src="script.js"></script>
 </body>
 </html>
-
