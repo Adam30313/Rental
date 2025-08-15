@@ -12,7 +12,8 @@ import {
 // 2) API homogène
 const DF = {
   dateParse: (s, fmt, ref = new Date()) => dfParse(s, fmt, ref),
-  dateFormat: (d, fmt) => (d instanceof Date && !isNaN(d.getTime()) ? dfFormat(d, fmt) : ''),
+  dateFormat: (d, fmt) =>
+    (d instanceof Date && !isNaN(d.getTime()) ? dfFormat(d, fmt) : ''),
   differenceInDays: dfDiff,
   startOfDay: dfStart,
   isSameDay: dfSame,
@@ -20,70 +21,29 @@ const DF = {
 
 // ================== Données & constantes ==================
 const STORAGE_KEY = 'rf_site_state_v5';
-const VERIF_KEY   = 'rf_avail_verif_v1';
 
 // ====== Hiérarchie de classes + contrainte transmission ======
-// mdmr<mdar<edmr<edar<cdmr<cdar<idmr<idar<sdah<cfmr<cfar<ifmr<ifar<ifah
+// MISE À JOUR demandée : mdmr<mdar<edmr<edar<cdmr<cdar<idmr<idar<sdah<cfmr<cfar<ifmr<ifar<ifah
 const CLASS_CHAIN = ['mdmr','mdar','edmr','edar','cdmr','cdar','idmr','idar','sdah','cfmr','cfar','ifmr','ifar','ifah'];
-const CLASS_RANK  = Object.fromEntries(CLASS_CHAIN.map((c,i)=>[c,i]));
+const CLASS_RANK = Object.fromEntries(CLASS_CHAIN.map((c,i)=>[c,i]));
 
-// --- Helpers d'unité / carburant / km
+// --- Helpers d'unité
 const ONE_HOUR = 3600 * 1000;
 const cleanUnit = (u) => String(u || '').replace(/\s*\(retour\)$/i,'').trim();
+
+let reservationAssignmentsMeta = {}; // { [resNumber]: { source:'available'|'return'|'manual', returnDate:Date|null, upgrade:boolean } }
+
 function normClass(cls){ return String(cls||'').trim().toLowerCase(); }
+// 3e lettre = 'a' → AUTO ; sinon MANUEL (ex: mdmr=m, mdar=a, sdah=a, ifah=a)
 function isAuto(cls){ return normClass(cls)[2] === 'a'; }
-
-function toNumber(val){
-  if (val == null || val === '') return null;
-  const s = String(val).replace(/\s+/g,'').replace(/,/g,'');
-  const n = parseFloat(s);
-  return isFinite(n) ? n : null;
-}
-
-// carburant → true si PAS plein (affiche ⛽)
-function isFuelNotFull(val){
-  if (val == null) return false;
-  const s = String(val).trim();
-  if (!s) return false;
-  const u = s.toUpperCase();
-  if (u === 'F' || u === 'FULL' || u === '8/8' || u === '1' || u === '1.0' || u === '100' || u === '100%') return false;
-  const frac = u.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
-  if (frac){
-    const num = parseFloat(frac[1]), den = parseFloat(frac[2]);
-    if (den > 0) return (num/den) < 0.98;
-  }
-  const perc = u.match(/^(\d+(?:\.\d+)?)%$/);
-  if (perc) return parseFloat(perc[1]) < 98;
-  if (u === 'E' || u === 'EMPTY' || u === '0' || u === '0%') return true;
-  return false;
-}
-
-// Carburant → ratio [0..1] (pour comparer réel vs fichier)
-function fuelToRatio(val){
-  if (val == null || val === '') return null;
-  const u = String(val).trim().toUpperCase();
-  if (u === 'F' || u === 'FULL' || u === '8/8' || u === '1' || u === '100' || u === '100%') return 1;
-  if (u === 'E' || u === 'EMPTY' || u === '0' || u === '0%') return 0;
-  const frac = u.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
-  if (frac){
-    const num = parseFloat(frac[1]), den = parseFloat(frac[2]);
-    if (den>0) return Math.max(0, Math.min(1, num/den));
-  }
-  const perc = u.match(/^(\d+(?:\.\d+)?)%$/);
-  if (perc) return Math.max(0, Math.min(1, parseFloat(perc[1])/100));
-  const num = toNumber(u);
-  if (num!=null){
-    if (num>1) return Math.max(0, Math.min(1, num/100));
-    return Math.max(0, Math.min(1, num));
-  }
-  return null;
-}
 
 // r = classe demandée, u = classe du véhicule
 function canSatisfy(reqCls, unitCls){
   const r = normClass(reqCls), u = normClass(unitCls);
+  // Transmission : AUTO demandée => unité doit être AUTO ; MANUEL demandée => MANUEL ou AUTO ok
   if (isAuto(r) && !isAuto(u)) return false;
-  if (!(r in CLASS_RANK) || !(u in CLASS_RANK)) return r === u;
+  // Classe : même rang ou supérieur (upgrade)
+  if (!(r in CLASS_RANK) || !(u in CLASS_RANK)) return r === u; // fallback strict si inconnue
   return CLASS_RANK[u] >= CLASS_RANK[r];
 }
 
@@ -95,21 +55,19 @@ function bestUpgradeOrder(reqCls){
 }
 
 // ================== Sélecteurs DOM ==================
-const fileInput        = document.getElementById('fileInput');
-const resetButton      = document.getElementById('resetButton');
-const loadingDiv       = document.getElementById('loading');
-const errorDiv         = document.getElementById('error');
+const fileInput = document.getElementById('fileInput');
+const resetButton = document.getElementById('resetButton');
+const loadingDiv = document.getElementById('loading');
+const errorDiv = document.getElementById('error');
 const errorMessageSpan = document.getElementById('errorMessage');
-const detailModal      = document.getElementById('detailModal');
-const detailTitle      = document.getElementById('detailTitle');
-const detailBody       = document.getElementById('detailBody');
-const detailClose      = document.getElementById('detailClose');
+const detailModal = document.getElementById('detailModal');
+const detailTitle = document.getElementById('detailTitle');
+const detailBody = document.getElementById('detailBody');
+const detailClose = document.getElementById('detailClose');
 
 let charts = {};
 let processedReservations = [], processedDueIn = [], processedAvailable = [];
 let reservationAssignments = {};
-let reservationAssignmentsMeta = {};
-let availVerif = {}; // { [unit]: { checked:boolean, realKm:number|null, realFuel:string|null, ts:number } }
 
 // ================== Utils ==================
 function makeCheckedDate(y, m, d, hh=0, mi=0, ss=0){
@@ -118,62 +76,47 @@ function makeCheckedDate(y, m, d, hh=0, mi=0, ss=0){
   if (dt.getFullYear() !== y || dt.getMonth() !== m-1 || dt.getDate() !== d) return null;
   return dt;
 }
-function destroyCharts(){ Object.values(charts).forEach(c=>{ try{ c?.destroy?.(); }catch(_){}}); charts={}; }
-function headersOf(objArr){ if(!objArr || !objArr[0]) return []; return Object.keys(objArr[0]).map(h=> String(h)); }
-function normHeader(h){ return String(h||'').replace(/[\u00A0]/g,' ').replace(/\s+/g,' ').trim(); }
-function getField(row, aliases){ for (const a of aliases){ if (row[a] != null && row[a] !== '') return row[a]; } return undefined; }
 
-function saveVerif(){
-  try{ localStorage.setItem(VERIF_KEY, JSON.stringify(availVerif)); }catch(_){}
-}
-function loadVerif(){
-  try{ const raw = localStorage.getItem(VERIF_KEY); availVerif = raw ? JSON.parse(raw) : {}; }catch(_){ availVerif = {}; }
-}
+function destroyCharts() { Object.values(charts).forEach(c => { try { c && c.destroy && c.destroy(); } catch(_){} }); charts = {}; }
+function headersOf(objArr){ if(!objArr || !objArr[0]) return []; return Object.keys(objArr[0]).map(h => String(h)); }
+function normHeader(h){ return String(h || '').replace(/[\u00A0]/g,' ').replace(/\s+/g,' ').trim(); }
+function getField(row, aliases){ for (const a of aliases){ if (row[a] != null && row[a] !== '') return row[a]; } return undefined; }
 
 // ================== Parsing Excel ==================
 async function parseExcelFile(file) {
   if (!file) return null;
   const fileName = file.name.toLowerCase();
   if (!fileName.endsWith('.xlsx')) throw new Error(`Format de fichier non supporté: ${file.name}. Veuillez utiliser .xlsx`);
-  const arrayBuffer   = await file.arrayBuffer();
-  const workbook      = XLSX.read(arrayBuffer, { cellDates: false });
-  const firstSheet    = workbook.SheetNames[0];
-  const worksheet     = workbook.Sheets[firstSheet];
-  const asObjectsRaw  = XLSX.utils.sheet_to_json(worksheet, { raw: false });
-  const asArrays      = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
-  const asObjects     = asObjectsRaw.map(r => { const out={}; Object.keys(r).forEach(k=> out[normHeader(k)] = r[k]); return out;});
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { cellDates: false });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  const asObjectsRaw = XLSX.utils.sheet_to_json(worksheet, { raw: false });
+  const asArrays = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+  const asObjects = asObjectsRaw.map(row => { const out = {}; Object.keys(row).forEach(k => { out[normHeader(k)] = row[k]; }); return out; });
   return { asArrays, asObjects };
 }
 
-// REMPLACEZ toute la fonction detectFileType par ceci
 function detectFileType(data) {
   if (!data || data.length === 0) return 'unknown';
   const headers = headersOf(data).map(normHeader);
   const set = new Set(headers);
-  const has    = (h)   => set.has(normHeader(h));
+  const has = (h) => set.has(normHeader(h));
   const hasAny = (arr) => arr.some(h => has(h));
+  const dueCols = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
 
-  const dueCols        = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
-  const availUnitCols  = ['Unit #','Unit#','Unit','VIN','Vin #','Vin'];
-  const availHintCols  = [
-    'Curr Loc','Current Location','Current Location ','Location',
-    'Class','Categorie','Category','Car Class',
-    'Curr Fuel','CurrFuel','Fuel','Fuel Level',
-    'Curr Odo','Current Odo','Current Odometer','Odometer','Odo','KM','Km','Kilometrage','Mileage','Current Mileage'
-  ];
-
-  // Réservations
   if (has('Res #') && (has('Pickup Date') || has('Pick Up Date'))) return 'reservations';
 
-  // Disponibles (beaucoup plus tolérant)
-  if (hasAny(availUnitCols) && hasAny(availHintCols)) return 'available';
+  // dispo : assoupli pour inclure plaque/odo/fuel
+  if (
+    (has('Curr Loc') || has('Current Location') || has('Location')) &&
+    (has('Vin #') || has('Vin') || has('Unit #') || has('Unit') || has('Plate') || has('Registration'))
+  ) return 'available';
 
-  // Due-In
-  if (hasAny(dueCols) && (hasAny(availUnitCols) || has('Name') || has('Client'))) return 'dueIn';
+  if (hasAny(dueCols) && (has('Unit #') || has('Name') || has('Client'))) return 'dueIn';
 
   return 'unknown';
 }
-
 
 function parseRobustDate(dateValue) {
   if (dateValue == null || dateValue === '') return null;
@@ -230,11 +173,7 @@ function parseRobustDate(dateValue) {
 function updateStatusIndicator(type, ok) {
   const id = 'status' + type.charAt(0).toUpperCase() + type.slice(1);
   const el = document.getElementById(id); if (!el) return;
-  if (ok) {
-    if(!el.innerText.includes('✅')) el.innerText += ' ✅';
-    el.classList.remove('text-gray-400');
-    el.classList.add('text-green-600','font-semibold');
-  }
+  if (ok) { if(!el.innerText.includes('✅')) el.innerText += ' ✅'; el.classList.remove('text-gray-400'); el.classList.add('text-green-600','font-semibold'); }
 }
 
 function saveState(){
@@ -256,11 +195,13 @@ function loadState(){
   try {
     const raw = localStorage.getItem(STORAGE_KEY); if(!raw) return;
     const s = JSON.parse(raw);
-    processedReservations       = Array.isArray(s?.r)? s.r : [];
-    processedDueIn              = Array.isArray(s?.d)? s.d : [];
-    processedAvailable          = Array.isArray(s?.a)? s.a : [];
-    reservationAssignments      = Object.fromEntries(Object.entries(s?.asg || {}).map(([k,v]) => [k, v==='none' ? 'none' : cleanUnit(v)]));
-    reservationAssignmentsMeta  = s?.asgMeta || {};
+    processedReservations = Array.isArray(s?.r)? s.r : [];
+    processedDueIn       = Array.isArray(s?.d)? s.d : [];
+    processedAvailable   = Array.isArray(s?.a)? s.a : [];
+    reservationAssignments = Object.fromEntries(
+      Object.entries(s?.asg || {}).map(([k,v]) => [k, v==='none' ? 'none' : cleanUnit(v)])
+    );
+    reservationAssignmentsMeta = s?.asgMeta || {};
     if (processedReservations.length) updateStatusIndicator('reservations', true);
     if (processedDueIn.length)       updateStatusIndicator('dueIn', true);
     if (processedAvailable.length)   updateStatusIndicator('available', true);
@@ -291,7 +232,6 @@ function normalizeLoc(raw){
 async function handleFileUpload(event) {
   const files = event.target.files; if (!files || files.length === 0) return;
   loadingDiv.classList.remove('hidden'); errorDiv.classList.add('hidden');
-
   for (const file of files) {
     try {
       const { asArrays, asObjects } = await parseExcelFile(file);
@@ -300,43 +240,58 @@ async function handleFileUpload(event) {
 
       if (type === 'reservations') {
         processedReservations = asObjects.map(r => ({
-          resNumber:  getField(r, ['Res #','RES #']),
-          name:       getField(r, ['Name','Client','Customer']),
-          class:      getField(r, ['Class','Categorie','Category','Car Class']),
+          resNumber: getField(r, ['Res #','RES #']),
+          name: getField(r, ['Name','Client','Customer']),
+          class: getField(r, ['Class','Categorie','Category','Car Class']),
           pickupDate: parseRobustDate(getField(r, ['Pickup Date','Pick Up Date'])),
-          dropOffDate:parseRobustDate(getField(r, ['Drop Off Date','Return Date'])),
-          dailyRate:  getField(r, ['Daily Rate','Rate','Prix'])
+          dropOffDate: parseRobustDate(getField(r, ['Drop Off Date','Return Date'])),
+          dailyRate: getField(r, ['Daily Rate','Rate','Prix'])
         })).filter(r => r.name && r.pickupDate);
         updateStatusIndicator('reservations', true);
 
       } else if (type === 'available') {
+        // On récupère aussi KM, Carburant, Matricule (plate)
+        const unitAliases = ['Unit #','Unit#','Unit','VIN','Vin #','Vin'];
+        const classAliases = ['Class','Categorie','Category','Car Class'];
+        const fuelAliases = ['Curr Fuel','Current Fuel','Fuel','Fuel Level'];
+        const odoAliases  = ['Odometer','Current Odometer','Cur Odo','KM','Mileage','Kilométrage'];
+        const plateAliases= ['Plate','Registration','Matricule','License','Immatriculation'];
+
         processedAvailable = asObjects.map(r => ({
-          unitNumber: getField(r, ['Unit #','Unit#','Unit','VIN','Vin #','Vin']),
-          class:      getField(r, ['Class','Categorie','Category','Car Class']),
-          fuel:       getField(r, ['Curr Fuel','CurrFuel','Fuel','Fuel Level']),
-          odometer:   toNumber(getField(r, ['Curr Odo','Current Odo','Current Odometer','Odometer','Odo','KM','Km','Kilometrage','Mileage','Current Mileage']))
+          unitNumber: getField(r, unitAliases),
+          class: getField(r, classAliases),
+          currentFuel: getField(r, fuelAliases),
+          currentOdo: (() => {
+            const raw = getField(r, odoAliases);
+            if (raw == null || raw === '') return null;
+            // Nettoyage nombres '123 456' ou '123,456'
+            const n = Number(String(raw).replace(/[^\d.]/g,''));
+            return isFinite(n) ? n : null;
+          })(),
+          plate: getField(r, plateAliases)
         })).filter(r => r.unitNumber);
         updateStatusIndicator('available', true);
 
       } else if (type === 'dueIn') {
-        const unitAliases  = ['Unit #','Unit#','Unit','VIN','Vin #','Vin','__EMPTY','__EMPTY_1','Unnamed: 0'];
-        const dateAliases  = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
-        const nameAliases  = ['Name','Client'];
+        const unitAliases = ['Unit #','Unit#','Unit','VIN','Vin #','Vin','__EMPTY','__EMPTY_1','Unnamed: 0'];
+        const dateAliases = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
+        const nameAliases = ['Name','Client'];
         const classAliases = ['Class','Categorie','Category','Car Class'];
-        const locAliases   = ['Current Location','Current Location ','Curr Loc','Location'];
+        const locAliases = ['Current Location','Current Location ','Curr Loc','Location'];
 
         const clean = asObjects.filter(r => (getField(r, unitAliases) || getField(r, nameAliases)) && (getField(r, dateAliases) != null));
 
         processedDueIn = clean.map(r => ({
-          unitNumber:     getField(r, unitAliases),
-          model:          getField(r, ['Model','Vehicle','Vehicule']),
-          class:          getField(r, classAliases),
-          daysLate:       parseInt(getField(r, ['Days Late','Days Out']) || '0', 10) || 0,
-          name:           getField(r, nameAliases),
-          location:       normalizeLoc(getField(r, locAliases) || getField(r, unitAliases)),
+          unitNumber: getField(r, unitAliases),
+          model: getField(r, ['Model','Vehicle','Vehicule']),
+          class: getField(r, classAliases),
+          daysLate: parseInt(getField(r, ['Days Late','Days Out']) || '0', 10) || 0,
+          name: getField(r, nameAliases),
+          location: normalizeLoc(getField(r, locAliases) || getField(r, unitAliases)),
           expectedReturn: parseRobustDate(getField(r, dateAliases))
         }));
         updateStatusIndicator('dueIn', true);
+
       } else {
         console.warn(`Type de fichier non reconnu: ${file.name}`);
       }
@@ -346,16 +301,32 @@ async function handleFileUpload(event) {
       errorDiv.classList.remove('hidden');
     }
   }
-
-  loadingDiv.classList.add('hidden');
-  fileInput.value = '';
+  loadingDiv.classList.add('hidden'); fileInput.value = '';
   updateDashboard(); saveState();
 }
 
-// ====== Sélection manuelle (assignation) ======
+// ====== Aide: infos unité à partir des buffers ======
+function classOfUnit(unit){
+  const u = cleanUnit(unit);
+  const a = processedAvailable.find(v => String(v.unitNumber)===u);
+  if (a) return normClass(a.class);
+  const d = processedDueIn.find(v => String(v.unitNumber)===u);
+  return d ? normClass(d.class) : null;
+}
+
+// Retour éligible (>= 1h avant le pickup) le plus proche avant la résa
+function findEligibleReturn(unit, pickupDate){
+  const u = cleanUnit(unit);
+  const list = processedDueIn
+      .filter(v => String(v.unitNumber)===u && v.expectedReturn && (pickupDate - v.expectedReturn) >= ONE_HOUR)
+      .sort((a,b)=> b.expectedReturn - a.expectedReturn);
+  return list[0] || null;
+}
+
+// ====== Sélection manuelle ======
 function handleAssignmentChange(e){
   const resNumber = e.target.dataset.resNumber;
-  const newUnit   = e.target.value;
+  const newUnit = e.target.value;
 
   if (newUnit === 'none') {
     reservationAssignments[resNumber] = 'none';
@@ -364,19 +335,22 @@ function handleAssignmentChange(e){
     return;
   }
 
+  // Déduire source & upgrade
   const unit = String(newUnit);
-  const res  = processedReservations.find(r => r.resNumber === resNumber);
+  const res = processedReservations.find(r => r.resNumber === resNumber);
   const reqCls = res ? normClass(res.class) : null;
 
+  // Source: available par défaut, sinon 'return' si retour valable (≥1h avant pickup)
   let source = 'available';
   let returnDate = null;
   if (res && res.pickupDate){
     const r = processedDueIn
-      .filter(v => String(v.unitNumber)===unit && v.expectedReturn && (res.pickupDate - v.expectedReturn) >= ONE_HOUR)
+      .filter(v => String(v.unitNumber)===unit && v.expectedReturn && (res.pickupDate - v.expectedReturn) >= 3600*1000)
       .sort((a,b)=> b.expectedReturn - a.expectedReturn)[0];
     if (r){ source = 'return'; returnDate = r.expectedReturn; }
   }
 
+  // Upgrade ?
   const unitCls = (() => {
     const inAvail = processedAvailable.find(v => String(v.unitNumber)===unit);
     if (inAvail) return normClass(inAvail.class);
@@ -393,10 +367,8 @@ function handleAssignmentChange(e){
 }
 
 function resetAll(){
-  processedReservations = []; processedDueIn = []; processedAvailable = [];
-  reservationAssignments = {}; reservationAssignmentsMeta = {};
-  availVerif = {}; saveVerif();
-  document.querySelectorAll('.status-indicator').forEach(el=>{
+  processedReservations = []; processedDueIn = []; processedAvailable = []; reservationAssignments = {};
+  document.querySelectorAll('.status-indicator').forEach(el => {
     el.classList.remove('text-green-600','font-semibold');
     el.classList.add('text-gray-400');
     el.innerText = el.innerText.replace(' ✅','');
@@ -408,7 +380,13 @@ function resetAll(){
 
 function fmtDh(n){ return isFinite(n)? `${Number(n).toFixed(2)} DH` : 'N/A'; }
 
-// =========================== AUTO-ASSIGNATION ===========================
+// ===========================
+//  AUTO-ASSIGNATION (2 passes par jour)
+//  - Remplir la 1ère journée avant la suivante
+//  - PASS 1 : match exact
+//  - PASS 2 : upgrades
+//  - Retours éligibles: >= 1h avant pickup
+// ===========================
 function autoAssignVehicles(){
   const today = new Date();
   const next7 = new Date(today.getTime() + 7*24*3600*1000);
@@ -427,7 +405,18 @@ function autoAssignVehicles(){
 
   const temp = { ...reservationAssignments };
   const tempMeta = { ...reservationAssignmentsMeta };
-  const assignedSet = new Set(Object.values(temp).filter(v => v && v !== 'none').map(cleanUnit));
+
+  const assignedSet = new Set(
+    Object.values(temp)
+      .filter(v => v && v !== 'none')
+      .map(String)
+  );
+
+  // corporate à éviter pour retours auto (ex: Global Engines …)
+  const CORPORATE_BLOCKED = new Set([
+    'GLOBAL ENGINES','GLOBAL CHINESE MOTORS','GLOBAL AUTO TRADE & SERVICE','GLOBAL INTERNATIONAL MOTORS','GLOBAL ASSETS',
+    'GROUPE OCP','WAFA IMA ASSISTANCE','DOLIDOL','DATAPROTECT','NEXANS','SODIPOL SARL'
+  ].map(s=>s.toUpperCase()));
 
   const buildPool = (pickupDate) => {
     const poolAvail = processedAvailable
@@ -435,12 +424,17 @@ function autoAssignVehicles(){
       .map(v => ({ unitNumber:String(v.unitNumber), class:normClass(v.class), from:'available', returnDate:null }));
 
     const poolReturnsRaw = processedDueIn
-      .filter(v => v.expectedReturn && (pickupDate - v.expectedReturn) >= ONE_HOUR)
+      .filter(v =>
+        v.expectedReturn &&
+        (pickupDate - v.expectedReturn) >= ONE_HOUR &&
+        !CORPORATE_BLOCKED.has(String(v.name||'').trim().toUpperCase())
+      )
       .filter(v => !assignedSet.has(String(v.unitNumber)))
       .map(v => ({ unitNumber:String(v.unitNumber), class:normClass(v.class), from:'return', returnDate:v.expectedReturn }));
 
     const seen = new Set(poolAvail.map(x=>x.unitNumber));
     const poolReturns = poolReturnsRaw.filter(x=> !seen.has(x.unitNumber));
+
     return [...poolAvail, ...poolReturns];
   };
 
@@ -451,15 +445,19 @@ function autoAssignVehicles(){
     // PASS 1 : exact
     for (const res of dayRes){
       if (temp[res.resNumber]) {
-        if (temp[res.resNumber] !== 'none') assignedSet.add(cleanUnit(temp[res.resNumber]));
+        if (temp[res.resNumber] !== 'none') assignedSet.add(String(temp[res.resNumber]));
         continue;
       }
-      const req  = normClass(res.class);
+      const req = normClass(res.class);
       const pool = buildPool(res.pickupDate);
       const exact = pool.find(u => normClass(u.class) === req && canSatisfy(req, u.class));
       if (exact){
         temp[res.resNumber] = exact.unitNumber;
-        tempMeta[res.resNumber] = { source: exact.from, returnDate: exact.returnDate || null, upgrade:false };
+        tempMeta[res.resNumber] = {
+          source: exact.from,
+          returnDate: exact.returnDate || null,
+          upgrade: false
+        };
         assignedSet.add(String(exact.unitNumber));
       }
     }
@@ -467,11 +465,10 @@ function autoAssignVehicles(){
     // PASS 2 : upgrades
     for (const res of dayRes){
       if (temp[res.resNumber]) continue;
-      const req   = normClass(res.class);
+      const req = normClass(res.class);
       const prefs = bestUpgradeOrder(req).slice(1);
-      const pool  = buildPool(res.pickupDate);
+      const pool = buildPool(res.pickupDate);
       let candidate = null;
-
       for (const upCls of prefs){
         if (isAuto(req) && !isAuto(upCls)) continue;
         candidate = pool.find(v => normClass(v.class) === upCls && canSatisfy(req, v.class));
@@ -479,7 +476,11 @@ function autoAssignVehicles(){
       }
       if (candidate){
         temp[res.resNumber] = candidate.unitNumber;
-        tempMeta[res.resNumber] = { source: candidate.from, returnDate: candidate.returnDate || null, upgrade:true };
+        tempMeta[res.resNumber] = {
+          source: candidate.from,
+          returnDate: candidate.returnDate || null,
+          upgrade: true
+        };
         assignedSet.add(String(candidate.unitNumber));
       }
     }
@@ -511,20 +512,20 @@ function updateKPIs(reservations, available, dueIn){
 
 function updateCharts(reservations, available, dueIn){
   const fleetCanvas = document.getElementById('fleetStatusChart');
-  const resCanvas   = document.getElementById('reservationsByClassChart');
-  const dueCanvas   = document.getElementById('dueInByLocationChart');
+  const resCanvas = document.getElementById('reservationsByClassChart');
+  const dueCanvas = document.getElementById('dueInByLocationChart');
   const busyDaysCanvas = document.getElementById('busyDaysChart');
   if (!fleetCanvas || !resCanvas || !dueCanvas || !busyDaysCanvas) return;
 
   const fleetCtx = fleetCanvas.getContext('2d');
-  const fleetPh  = document.getElementById('fleetStatusPlaceholder');
+  const fleetPh = document.getElementById('fleetStatusPlaceholder');
   if (available.length>0 || dueIn.length>0){
     fleetPh.classList.add('hidden');
     charts.fleet = new Chart(fleetCtx,{ type:'doughnut', data:{ labels:['Disponible','En Location'], datasets:[{ data:[available.length, dueIn.length], backgroundColor:['#10B981','#F59E0B'], borderColor:'#fff', borderWidth:3 }]}, options:{ responsive:true, maintainAspectRatio:false }});
   } else { fleetPh.classList.remove('hidden'); }
 
   const resCtx = resCanvas.getContext('2d');
-  const resPh  = document.getElementById('reservationsByClassPlaceholder');
+  const resPh = document.getElementById('reservationsByClassPlaceholder');
   if (reservations.length>0){
     resPh.classList.add('hidden');
     const counts = reservations.reduce((acc,r)=>{ const k=r.class||'Inconnu'; acc[k]=(acc[k]||0)+1; return acc; },{});
@@ -532,13 +533,14 @@ function updateCharts(reservations, available, dueIn){
   } else { resPh.classList.remove('hidden'); }
 
   const dueCtx = dueCanvas.getContext('2d');
-  const duePh  = document.getElementById('dueInByLocationPlaceholder');
+  const duePh = document.getElementById('dueInByLocationPlaceholder');
   if (dueIn.length>0){
     duePh.classList.add('hidden');
     const counts = dueIn.reduce((acc,r)=>{ const k=r.location||mapLocFromCode(r.unitNumber)||'Inconnu'; acc[k]=(acc[k]||0)+1; return acc; },{});
     charts.location = new Chart(dueCtx,{ type:'bar', data:{ labels:Object.keys(counts), datasets:[{ label:'Véhicules Attendus', data:Object.values(counts), backgroundColor:'#8B5CF6' }]}, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } }, onClick: (evt, els)=>{ if (!els || !els.length) return; const idx = els[0].index; const label = charts.location.data.labels[idx]; openLocationDetail(label); } }});
   } else { duePh.classList.remove('hidden'); }
 
+  // Busy Days (next 7 days) — sum of events for hours with >1
   const busyPh = document.getElementById('busyDaysPlaceholder');
   const days = getNextDays(7);
   const dayTotals = days.map(d=> calculateBusyForDay(d));
@@ -563,6 +565,7 @@ function formatDayLabel(d){
 }
 
 function collectEvents(){
+  // {type:'pickup'|'return', when:Date, source:'reservation'|'dueIn', payload:{...}}
   const events = [];
   processedReservations.forEach(r=>{
     if (r.pickupDate) events.push({ type:'pickup', when:r.pickupDate, source:'reservation', payload:r });
@@ -623,7 +626,7 @@ function openBusyDayDetail(day){
   detailModal.classList.add('show');
 
   const ctx = document.getElementById(canvasId).getContext('2d');
-  if (charts.detailHour) { try{ charts.detailHour.destroy(); }catch(_){}} 
+  if (charts.detailHour) { try{ charts.detailHour.destroy(); }catch(_){} }
   charts.detailHour = new Chart(ctx, { type:'bar', data:{ labels, datasets:[ {label:'Départs', data:depCounts}, {label:'Retours', data:retCounts} ] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true }, y:{ beginAtZero:true, stacked:true } } }});
 
   const tbody = document.getElementById('detailEventsTbody');
@@ -643,31 +646,23 @@ function openBusyDayDetail(day){
   tbody.innerHTML = rows || `<tr><td colspan="6" class="text-center py-3 text-gray-500">Aucune heure > 1 événement pour ce jour.</td></tr>`;
 }
 
-// ===== Résumé assignations (bandeau sous le titre) =====
+// ---- Résumé assignations (bandeau hors tableau)
 function summarizeAssignments(upcoming){
   let assigned = 0, fromReturns = 0, upgrades = 0;
   for (const r of upcoming){
     const raw = reservationAssignments[r.resNumber];
     if (!raw || raw === 'none') continue;
     assigned++;
-    const unit  = cleanUnit(raw);
-    const meta  = reservationAssignmentsMeta[r.resNumber] || {};
+    const unit = cleanUnit(raw);
+    const meta = reservationAssignmentsMeta[r.resNumber] || {};
     const reqCls = normClass(r.class);
-
+    // retours comptés
     const retObj = (meta.source === 'return' && meta.returnDate)
       ? { expectedReturn: meta.returnDate }
-      : processedDueIn
-          .filter(v => String(v.unitNumber)===unit && v.expectedReturn && (r.pickupDate - v.expectedReturn) >= ONE_HOUR)
-          .sort((a,b)=> b.expectedReturn - a.expectedReturn)[0];
+      : findEligibleReturn(unit, r.pickupDate);
     if (retObj) fromReturns++;
-
-    const unitCls = (() => {
-      const a = processedAvailable.find(v => String(v.unitNumber)===unit);
-      if (a) return normClass(a.class);
-      const d = processedDueIn.find(v => String(v.unitNumber)===unit);
-      return d ? normClass(d.class) : null;
-    })();
-
+    // upgrades
+    const unitCls = classOfUnit(unit);
     let isUpgrade = false;
     if (unitCls && reqCls && (unitCls in CLASS_RANK) && (reqCls in CLASS_RANK)){
       isUpgrade = CLASS_RANK[unitCls] > CLASS_RANK[reqCls];
@@ -699,15 +694,18 @@ function renderAssignSummary(stats){
     <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-yellow-50 border border-yellow-200">Upgrades: ${stats.upgrades}</span>`;
 }
 
-// ================== Tables & rendu ==================
+// ================== TABLES (inclut Contrôle Véhicules Disponibles) ==================
 function updateTables(reservations, dueIn, available){
-  const tbodyRes     = document.getElementById('upcomingReservationsTable');
-  const availDiv     = document.getElementById('availabilityByCategory');
+  const tbodyRes = document.getElementById('upcomingReservationsTable');
+  const availDiv = document.getElementById('availabilityByCategory');
   const tbodyReturns = document.getElementById('upcomingReturnsTable');
-  const tbodyOver    = document.getElementById('overdueVehiclesTable');
-  const tbodyAvailCk = document.getElementById('availableCheckTable');
+  const tbodyOver = document.getElementById('overdueVehiclesTable');
+  const tbodyAvailCk = document.getElementById('availableCheckTable'); // <- section contrôle
 
-  tbodyRes.innerHTML=''; availDiv.innerHTML=''; tbodyReturns.innerHTML=''; tbodyOver.innerHTML=''; tbodyAvailCk.innerHTML='';
+  if (!tbodyRes || !availDiv || !tbodyReturns || !tbodyOver) return;
+
+  tbodyRes.innerHTML=''; availDiv.innerHTML=''; tbodyReturns.innerHTML=''; tbodyOver.innerHTML='';
+  if (tbodyAvailCk) tbodyAvailCk.innerHTML = '';
 
   const today = new Date();
   const next7 = new Date(today.getTime() + 7*24*3600*1000);
@@ -720,16 +718,19 @@ function updateTables(reservations, dueIn, available){
   const stats = summarizeAssignments(upcoming);
   renderAssignSummary(stats);
 
-  // ===== Réservations à venir
+  // ---------- Réservations à venir
   if (upcoming.length>0){
-    const assignedSetAll = new Set(Object.values(reservationAssignments).filter(v => v && v !== 'none').map(cleanUnit));
-
     upcoming.forEach((r)=>{
       const assignedRaw  = reservationAssignments[r.resNumber];
       const assignedUnit = assignedRaw && assignedRaw !== 'none' ? cleanUnit(assignedRaw) : null;
       const meta = reservationAssignmentsMeta[r.resNumber] || {};
       const reqCls = normClass(r.class);
 
+      const assignedSetAll = new Set(
+        Object.values(reservationAssignments)
+          .filter(v => v && v !== 'none')
+          .map(cleanUnit)
+      );
       const rank = (c)=> CLASS_RANK[normClass(c)] ?? Infinity;
 
       let pool = available
@@ -742,12 +743,7 @@ function updateTables(reservations, dueIn, available){
         .sort((a,b)=> rank(a.class) - rank(b.class));
 
       if (assignedUnit && !pool.some(v=> String(v.unitNumber)===String(assignedUnit))){
-        const cls = (() => {
-          const a = processedAvailable.find(v => String(v.unitNumber)===String(assignedUnit));
-          if (a) return normClass(a.class);
-          const d = processedDueIn.find(v => String(v.unitNumber)===String(assignedUnit));
-          return d ? normClass(d.class) : reqCls;
-        })();
+        const cls = classOfUnit(assignedUnit) || reqCls;
         pool = [{ unitNumber: String(assignedUnit), class: cls }, ...pool];
       }
 
@@ -769,28 +765,26 @@ function updateTables(reservations, dueIn, available){
 
       const price = r.dailyRate ? `${parseFloat(String(r.dailyRate).replace(',','.')).toFixed(2)} DH` : 'N/A';
 
+      // pills sous le select
       const pills = [];
       if (assignedUnit){
-        const unitCls = (() => {
-          const a = processedAvailable.find(v => String(v.unitNumber)===assignedUnit);
-          if (a) return normClass(a.class);
-          const d = processedDueIn.find(v => String(v.unitNumber)===assignedUnit);
-          return d ? normClass(d.class) : null;
-        })();
+        const unitCls = classOfUnit(assignedUnit);
         const labelCls = (unitCls || reqCls || '?').toUpperCase() + (unitCls ? '' : ' ?');
         pills.push(`<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 text-[10px] border">${labelCls}</span>`);
-
         const retObj = (meta.source === 'return' && meta.returnDate)
           ? { expectedReturn: meta.returnDate }
-          : processedDueIn
-              .filter(v => String(v.unitNumber)===assignedUnit && v.expectedReturn && (r.pickupDate - v.expectedReturn) >= ONE_HOUR)
-              .sort((a,b)=> b.expectedReturn - a.expectedReturn)[0];
+          : findEligibleReturn(assignedUnit, r.pickupDate);
         if (retObj){
           const d = new Date(retObj.expectedReturn);
           pills.push(`<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] border border-blue-200">retour du ${DF.dateFormat(d,'dd/MM HH:mm')}</span>`);
         }
-
-        const isUp = (unitCls && reqCls && (unitCls in CLASS_RANK) && (reqCls in CLASS_RANK)) ? (CLASS_RANK[unitCls] > CLASS_RANK[reqCls]) : (meta.upgrade === true);
+        const isUp = (() => {
+          const uCls = unitCls;
+          if (uCls && reqCls && (uCls in CLASS_RANK) && (reqCls in CLASS_RANK)) {
+            return CLASS_RANK[uCls] > CLASS_RANK[reqCls];
+          }
+          return meta.upgrade === true;
+        })();
         if (isUp){
           pills.push(`<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 text-[10px] border border-yellow-200">upgrade</span>`);
         }
@@ -815,116 +809,28 @@ function updateTables(reservations, dueIn, available){
           <td class="px-4 py-2">${selectHTML}</td>
         </tr>`;
     });
-
   } else {
     tbodyRes.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-gray-500">${reservations.length>0? 'Aucune réservation à venir dans les 7 prochains jours.' : 'Veuillez téléverser le fichier des réservations.'}</td></tr>`;
   }
 
-  // ===== Disponibilité par catégorie (⛽ si pas plein)
+  // ---------- Disponibilité par Catégorie (tags)
   if (available.length>0){
-    const byCat = available.reduce((acc,v)=>{ const k=v.class||'Inconnu'; (acc[k] ||= []).push(v); return acc; }, {});
-    const assignedUnits = new Set(Object.values(reservationAssignments).filter(v=> v && v!=='none').map(cleanUnit));
-
+    const byCat = available.reduce((acc,v)=>{ const k=v.class||'Inconnu'; (acc[k] ||= []).push(v.unitNumber); return acc; }, {});
     Object.keys(byCat).sort().forEach(cat=>{
       availDiv.innerHTML += `<h4 class="font-semibold mt-4 mb-2 text-sm">${cat}</h4>`;
-      const list = byCat[cat].map(v=>{
-        const u = String(v.unitNumber||'?');
-        const locked = assignedUnits.has(u);
-        const needFuel = isFuelNotFull(v.fuel);
-        return `
-          <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 rounded ${locked?'bg-gray-200 text-gray-500 line-through':'bg-green-100 text-green-800'}">
-            ${u} ${locked?'🔒':''}${needFuel? `<span class="fuel-icon" title="Carburant: ${String(v.fuel||'?')}">⛽</span>`:''}
-          </span>`;
+      const list = byCat[cat].map(u=>{
+        const locked = Object.values(reservationAssignments).filter(v=> v && v !== 'none').map(String).includes(String(u));
+        return `<span class="inline-block px-2 py-1 mr-2 mb-2 rounded ${locked?'bg-gray-200 text-gray-500 line-through':'bg-green-100 text-green-800'}">${u||'?'} ${locked?'🔒':''}</span>`;
       }).join('');
-      availDiv.innerHTML += `<div class="flex flex-wrap">${list}</div>`;
+      availDiv.innerHTML += `<div>${list}</div>`;
     });
-  } else {
-    availDiv.innerHTML = `<p class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des unités disponibles.</p>`;
-  }
+  } else { availDiv.innerHTML = `<p class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des unités disponibles.</p>`; }
 
-  // ===== NOUVEAU : Contrôle Véhicules Disponibles (table)
-  if (available.length>0){
-    const rows = [...available].sort((a,b)=>{
-      const ca = String(a.class||'').localeCompare(String(b.class||'')); if (ca!==0) return ca;
-      return String(a.unitNumber||'').localeCompare(String(b.unitNumber||''));
-    });
-
-    rows.forEach(v=>{
-      const u = String(v.unitNumber||'');
-      const rec = availVerif[u] || {};
-      const tsText = rec.ts ? DF.dateFormat(new Date(rec.ts),'dd/MM HH:mm') : '—';
-
-      // badges différence si réels saisis
-      const kmDiff = rec.realKm!=null && v.odometer!=null && Math.round(rec.realKm)!==Math.round(v.odometer);
-      const fRealR = fuelToRatio(rec.realFuel);
-      const fFileR = fuelToRatio(v.fuel);
-      const fuelDiff = (fRealR!=null && fFileR!=null) ? (Math.abs(fRealR - fFileR) > 0.02) : false;
-
-      const kmBadge   = rec.realKm!=null ? (kmDiff ? `<span class="badge-diff text-[10px] px-1 py-0.5 ml-2 rounded">diff</span>` : `<span class="badge-ok text-[10px] px-1 py-0.5 ml-2 rounded">ok</span>`) : '';
-      const fuelBadge = rec.realFuel? (fuelDiff ? `<span class="badge-diff text-[10px] px-1 py-0.5 ml-2 rounded">diff</span>` : `<span class="badge-ok text-[10px] px-1 py-0.5 ml-2 rounded">ok</span>`) : '';
-
-      tbodyAvailCk.innerHTML += `
-        <tr class="border-b hover:bg-gray-50 align-middle">
-          <td class="px-4 py-2 font-medium">${u}</td>
-          <td class="px-4 py-2">${v.class||'—'}</td>
-          <td class="px-4 py-2">${v.odometer!=null ? Math.round(v.odometer) : '—'}</td>
-          <td class="px-4 py-2">${v.fuel!=null ? String(v.fuel) : '—'}</td>
-          <td class="px-4 py-2">
-            <input type="number" step="1" class="verif-km w-28 border rounded px-2 py-1 text-sm" data-unit="${u}" value="${rec.realKm!=null ? rec.realKm : ''}" placeholder="ex: 45210" />
-            ${kmBadge}
-          </td>
-          <td class="px-4 py-2">
-            <input type="text" class="verif-fuel w-28 border rounded px-2 py-1 text-sm" data-unit="${u}" value="${rec.realFuel? rec.realFuel : ''}" placeholder="F, 7/8, 90%" />
-            ${fuelBadge}
-          </td>
-          <td class="px-4 py-2">
-            <input type="checkbox" class="verif-check w-5 h-5" data-unit="${u}" ${rec.checked ? 'checked':''} />
-          </td>
-          <td class="px-4 py-2 text-gray-500">${tsText}</td>
-        </tr>`;
-    });
-  } else {
-    tbodyAvailCk.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des unités disponibles.</td></tr>`;
-  }
-
-  // Listeners pour la table de contrôle
-  document.querySelectorAll('.verif-check').forEach(cb=>{
-    cb.addEventListener('change', e=>{
-      const unit = e.target.dataset.unit;
-      const rec = availVerif[unit] || {};
-      rec.checked = e.target.checked;
-      rec.ts = Date.now();
-      availVerif[unit] = rec;
-      saveVerif();
-      updateTables(processedReservations, processedDueIn, processedAvailable); // rafraîchit badges & horodatage
-    });
-  });
-  document.querySelectorAll('.verif-km').forEach(inp=>{
-    inp.addEventListener('change', e=>{
-      const unit = e.target.dataset.unit;
-      const rec = availVerif[unit] || {};
-      rec.realKm = toNumber(e.target.value);
-      rec.ts = Date.now();
-      availVerif[unit] = rec;
-      saveVerif();
-      updateTables(processedReservations, processedDueIn, processedAvailable);
-    });
-  });
-  document.querySelectorAll('.verif-fuel').forEach(inp=>{
-    inp.addEventListener('change', e=>{
-      const unit = e.target.dataset.unit;
-      const rec = availVerif[unit] || {};
-      rec.realFuel = String(e.target.value || '');
-      rec.ts = Date.now();
-      availVerif[unit] = rec;
-      saveVerif();
-      updateTables(processedReservations, processedDueIn, processedAvailable);
-    });
-  });
-
-  // ===== Retours attendus
+  // ---------- Retours à venir
   if (dueIn.length>0){
-    const upcomingReturns = dueIn.filter(v=> v.expectedReturn && v.expectedReturn>=today && v.expectedReturn<=next7).sort((a,b)=>a.expectedReturn-b.expectedReturn);
+    const upcomingReturns = dueIn
+      .filter(v=> v.expectedReturn && v.expectedReturn>=today && v.expectedReturn<=next7)
+      .sort((a,b)=>a.expectedReturn-b.expectedReturn);
     if (upcomingReturns.length>0){
       upcomingReturns.forEach(v=>{
         tbodyReturns.innerHTML += `<tr class="border-b hover:bg-gray-50"><td class="px-4 py-2 font-medium">${v.unitNumber||'N/A'}</td><td class="px-4 py-2">${v.model||'N/A'}</td><td class="px-4 py-2">${v.name||'N/A'}</td><td class="px-4 py-2">${DF.dateFormat(v.expectedReturn,'dd/MM/yyyy HH:mm')}</td></tr>`;
@@ -933,11 +839,9 @@ function updateTables(reservations, dueIn, available){
       const hasDates = dueIn.some(v=>v.expectedReturn);
       tbodyReturns.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">${hasDates? 'Aucun retour attendu dans les 7 prochains jours.' : 'Fichier chargé, mais impossible de lire les dates de retour.'}</td></tr>`;
     }
-  } else {
-    tbodyReturns.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des véhicules attendus.</td></tr>`;
-  }
+  } else { tbodyReturns.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des véhicules attendus.</td></tr>`; }
 
-  // ===== Retards
+  // ---------- En retard
   if (dueIn.length>0){
     const overdue = dueIn.filter(v=> Number(v.daysLate)>0).sort((a,b)=>Number(b.daysLate)-Number(a.daysLate));
     if (overdue.length>0){
@@ -947,11 +851,41 @@ function updateTables(reservations, dueIn, available){
     } else {
       tbodyOver.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Aucun véhicule en retard.</td></tr>`;
     }
-  } else {
-    tbodyOver.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des véhicules attendus.</td></tr>`;
+  } else { tbodyOver.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des véhicules attendus.</td></tr>`; }
+
+  // ---------- Contrôle Véhicules Disponibles (KM & Carburant)
+  if (tbodyAvailCk){
+    if (available.length === 0){
+      tbodyAvailCk.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des unités disponibles.</td></tr>`;
+    } else {
+      available.forEach(v => {
+        const fuelIcon = (() => {
+          const lv = (v.currentFuel || '').toString().trim();
+          return (lv && lv.toUpperCase() !== 'F') ? `<span title="Carburant non plein" class="text-red-600">⛽</span>` : '';
+        })();
+        const odoTxt = (v.currentOdo != null && isFinite(v.currentOdo))
+          ? `${Math.round(v.currentOdo).toLocaleString()}`
+          : '—';
+        const plateTxt = v.plate ? String(v.plate) : '';
+
+        const tr = document.createElement('tr');
+        tr.className = 'border-b hover:bg-gray-50';
+        tr.innerHTML = `
+          <td class="px-3 py-2 font-medium">${v.unitNumber || 'N/A'}</td>
+          <td class="px-3 py-2">${plateTxt}</td>
+          <td class="px-3 py-2">${(v.class || '—').toUpperCase()}</td>
+          <td class="px-3 py-2">${fuelIcon} <span class="text-xs text-gray-500">${v.currentFuel || ''}</span></td>
+          <td class="px-3 py-2">${odoTxt}</td>
+          <td class="px-3 py-2 text-center">
+            <input type="checkbox" class="theory-check" data-unit="${v.unitNumber}">
+          </td>
+        `;
+        tbodyAvailCk.appendChild(tr);
+      });
+    }
   }
 
-  // Listeners assignation
+  // Listeners selects
   document.querySelectorAll('.assigned-select').forEach(sel => sel.addEventListener('change', handleAssignmentChange));
 }
 
@@ -970,5 +904,4 @@ detailClose.addEventListener('click', ()=> detailModal.classList.remove('show'))
 detailModal.addEventListener('click', (e)=>{ if(e.target===detailModal) detailModal.classList.remove('show'); });
 
 loadState();
-loadVerif();
 updateDashboard();
