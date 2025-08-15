@@ -145,18 +145,35 @@ async function parseExcelFile(file) {
   return { asArrays, asObjects };
 }
 
+// REMPLACEZ toute la fonction detectFileType par ceci
 function detectFileType(data) {
   if (!data || data.length === 0) return 'unknown';
   const headers = headersOf(data).map(normHeader);
   const set = new Set(headers);
-  const has = (h) => set.has(normHeader(h));
+  const has    = (h)   => set.has(normHeader(h));
   const hasAny = (arr) => arr.some(h => has(h));
-  const dueCols = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
+
+  const dueCols        = ['Expected Return','Expected Return Date','Return Date','Due','Due In'];
+  const availUnitCols  = ['Unit #','Unit#','Unit','VIN','Vin #','Vin'];
+  const availHintCols  = [
+    'Curr Loc','Current Location','Current Location ','Location',
+    'Class','Categorie','Category','Car Class',
+    'Curr Fuel','CurrFuel','Fuel','Fuel Level',
+    'Curr Odo','Current Odo','Current Odometer','Odometer','Odo','KM','Km','Kilometrage','Mileage','Current Mileage'
+  ];
+
+  // Réservations
   if (has('Res #') && (has('Pickup Date') || has('Pick Up Date'))) return 'reservations';
-  if (has('Curr Loc') && (has('Vin #') || has('Vin') || has('Unit #'))) return 'available';
-  if (hasAny(dueCols) && (has('Unit #') || has('Name') || has('Client'))) return 'dueIn';
+
+  // Disponibles (beaucoup plus tolérant)
+  if (hasAny(availUnitCols) && hasAny(availHintCols)) return 'available';
+
+  // Due-In
+  if (hasAny(dueCols) && (hasAny(availUnitCols) || has('Name') || has('Client'))) return 'dueIn';
+
   return 'unknown';
 }
+
 
 function parseRobustDate(dateValue) {
   if (dateValue == null || dateValue === '') return null;
@@ -689,7 +706,6 @@ function updateTables(reservations, dueIn, available){
   const tbodyReturns = document.getElementById('upcomingReturnsTable');
   const tbodyOver    = document.getElementById('overdueVehiclesTable');
   const tbodyAvailCk = document.getElementById('availableCheckTable');
-  if (!tbodyRes || !availDiv || !tbodyReturns || !tbodyOver || !tbodyAvailCk) return;
 
   tbodyRes.innerHTML=''; availDiv.innerHTML=''; tbodyReturns.innerHTML=''; tbodyOver.innerHTML=''; tbodyAvailCk.innerHTML='';
 
