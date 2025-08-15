@@ -80,7 +80,27 @@ function makeCheckedDate(y, m, d, hh=0, mi=0, ss=0){
 function destroyCharts() { Object.values(charts).forEach(c => { try { c && c.destroy && c.destroy(); } catch(_){} }); charts = {}; }
 function headersOf(objArr){ if(!objArr || !objArr[0]) return []; return Object.keys(objArr[0]).map(h => String(h)); }
 function normHeader(h){ return String(h || '').replace(/[\u00A0]/g,' ').replace(/\s+/g,' ').trim(); }
-function getField(row, aliases){ for (const a of aliases){ if (row[a] != null && row[a] !== '') return row[a]; } return undefined; }
+// Remplace TOUTE la fonction getField par ceci :
+function getField(row, aliases){
+  for (const a of aliases){
+    const k1 = normHeader(a);          // ex: "Kms" -> "Kms", "Unit  # " -> "Unit #"
+    if (row[k1] != null && row[k1] !== '') return row[k1];
+
+    const k2 = k1.toLowerCase();       // doublon en minuscules si dispo
+    if (row[k2] != null && row[k2] !== '') return row[k2];
+
+    // Fallback: recherche fuzzy sur les clés existantes (utile pour "Kms", "KM(s)", etc.)
+    const tryRe = /^(km|kms|km\(s\)|kilom(é|e)trage|od(o|omet(er)?)|mileage)$/i;
+    for (const key of Object.keys(row)){
+      if (tryRe.test(normHeader(key))) {
+        const val = row[key];
+        if (val != null && val !== '') return val;
+      }
+    }
+  }
+  return undefined;
+}
+
 
 // ================== Parsing Excel ==================
 async function parseExcelFile(file) {
@@ -93,7 +113,16 @@ async function parseExcelFile(file) {
   const worksheet = workbook.Sheets[firstSheetName];
   const asObjectsRaw = XLSX.utils.sheet_to_json(worksheet, { raw: false });
   const asArrays = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
-  const asObjects = asObjectsRaw.map(row => { const out = {}; Object.keys(row).forEach(k => { out[normHeader(k)] = row[k]; }); return out; });
+  const asObjects = asObjectsRaw.map(row => {
+    const out = {};
+    Object.keys(row).forEach(k => {
+      const nk = normHeader(k);      // clé normalisée (trim + espaces compressés + NBSP -> espace)
+      const v  = row[k];
+      out[nk] = v;                   // ex: "Kms"
+      out[nk.toLowerCase()] = v;     // ex: "kms"  (doublon pour lecture tolérante à la casse)
+    });
+    return out;
+  });
   return { asArrays, asObjects };
 }
 
@@ -257,7 +286,7 @@ async function handleFileUpload(event) {
         // élargi pour capter + de libellés réels
         const odoAliases   = [
           'Odometer','Current Odometer','Curr Odometer','Current Odo','Curr Odo','Cur Odo','Odo',
-          'KM','Km','KMS','kms','Kms','Kilométrage','Kilometrage','Mileage'
+          'KM','Km','KMS','kms','Kms','Kilométrage','Kilometrage','Mileage',
         ];
 
         const plateAliases = ['Plate','Registration','Matricule','License','Immatriculation'];
