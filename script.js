@@ -300,20 +300,33 @@ async function handleFileUpload(event) {
             // 1) essai par alias exacts
             let raw = getField(r, odoAliases);
 
-            // 2) fallback fuzzy si rien trouvé: on tente des clés qui "ressemblent"
+            // 2) fallback fuzzy si rien trouvé
             if (raw == null || raw === '') {
               const tryRe = /^(km|kms|km\(s\)|kilom(é|e)trage|od(o|omet(er)?)|mileage)$/i;
               for (const k of Object.keys(r)) {
                 if (tryRe.test(String(k))) { raw = r[k]; break; }
               }
             }
-
             if (raw == null || raw === '') return null;
 
-            // Nettoyage nombres: supprime espaces, séparateurs, lettres
-            const n = Number(String(raw).replace(/[^\d.,-]/g,'').replace(/,/g,'.'));
-            return isFinite(n) ? n : null;
+            // --- PARSE ROBUSTE ---
+            const rawStr = String(raw);
+            const cleaned = rawStr.replace(/[^\d.,-]/g, '').trim(); // enlève espaces, NBSP, etc.
+            let num = Number(cleaned.replace(/,/g, '.'));           // virgule -> point
+
+            if (!isFinite(num)) return null;
+
+            // Heuristique "valeur en milliers" :
+            // - si la valeur numérique est < 1000 ET
+            // - si le texte ressemble à "68 664" ou "68,664" (séparateur de milliers)
+            const looksThousands = /(\d{1,3}[ \u00A0\u202F]\d{3})|(\d+[.,]\d{3}\b)/.test(rawStr);
+            if (num < 1000 && looksThousands) {
+              num = Math.round(num * 1000);
+            }
+
+            return num;
           })(),
+
 
           plate: getField(r, plateAliases)
         })).filter(r => r.unitNumber);
