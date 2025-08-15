@@ -257,8 +257,9 @@ async function handleFileUpload(event) {
         // élargi pour capter + de libellés réels
         const odoAliases   = [
           'Odometer','Current Odometer','Curr Odometer','Current Odo','Curr Odo','Cur Odo','Odo',
-          'KM','Km','Kilométrage','Kilometrage','Mileage'
+          'KM','Km','KMS','kms','Kms','Kilométrage','Kilometrage','Mileage'
         ];
+
         const plateAliases = ['Plate','Registration','Matricule','License','Immatriculation'];
 
 
@@ -267,12 +268,24 @@ async function handleFileUpload(event) {
           class: getField(r, classAliases),
           currentFuel: getField(r, fuelAliases),
           currentOdo: (() => {
-            const raw = getField(r, odoAliases);
+            // 1) essai par alias exacts
+            let raw = getField(r, odoAliases);
+
+            // 2) fallback fuzzy si rien trouvé: on tente des clés qui "ressemblent"
+            if (raw == null || raw === '') {
+              const tryRe = /^(km|kms|km\(s\)|kilom(é|e)trage|od(o|omet(er)?)|mileage)$/i;
+              for (const k of Object.keys(r)) {
+                if (tryRe.test(String(k))) { raw = r[k]; break; }
+              }
+            }
+
             if (raw == null || raw === '') return null;
-            // Nettoyage nombres '123 456' ou '123,456'
-            const n = Number(String(raw).replace(/[^\d.]/g,''));
+
+            // Nettoyage nombres: supprime espaces, séparateurs, lettres
+            const n = Number(String(raw).replace(/[^\d.,-]/g,'').replace(/,/g,'.'));
             return isFinite(n) ? n : null;
           })(),
+
           plate: getField(r, plateAliases)
         })).filter(r => r.unitNumber);
         updateStatusIndicator('available', true);
