@@ -9,5 +9,9 @@ body { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helveti
 .modal-overlay.show { display: flex; }
 .modal-content { background: #fff; border-radius: 0.75rem; padding: 1rem; width: min(100%, 900px); max-height: 85vh; overflow: auto; }
 
-/* Nouvel indicateur carburant dans 'Disponibilité par Catégorie' */
-.fuel-icon{ margin-left:6px; font-size:12px; line-height:1; vertical-align:middle; color:#ef4444; } /* rouge léger */
+/* Icône carburant dans la liste de Dispo par Catégorie */
+.fuel-icon{ margin-left:6px; font-size:12px; line-height:1; vertical-align:middle; color:#ef4444; }
+
+/* Petits badges */
+.badge-ok   { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+.badge-diff { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
