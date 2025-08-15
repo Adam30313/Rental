@@ -251,11 +251,16 @@ async function handleFileUpload(event) {
 
       } else if (type === 'available') {
         // On récupère aussi KM, Carburant, Matricule (plate)
-        const unitAliases = ['Unit #','Unit#','Unit','VIN','Vin #','Vin'];
+        const unitAliases  = ['Unit #','Unit#','Unit','VIN','Vin #','Vin'];
         const classAliases = ['Class','Categorie','Category','Car Class'];
-        const fuelAliases = ['Curr Fuel','Current Fuel','Fuel','Fuel Level'];
-        const odoAliases  = ['Odometer','Current Odometer','Cur Odo','KM','Mileage','Kilométrage'];
-        const plateAliases= ['Plate','Registration','Matricule','License','Immatriculation'];
+        const fuelAliases  = ['Curr Fuel','Current Fuel','Fuel','Fuel Level'];
+        // élargi pour capter + de libellés réels
+        const odoAliases   = [
+          'Odometer','Current Odometer','Curr Odometer','Current Odo','Curr Odo','Cur Odo','Odo',
+          'KM','Km','Kilométrage','Kilometrage','Mileage'
+        ];
+        const plateAliases = ['Plate','Registration','Matricule','License','Immatriculation'];
+
 
         processedAvailable = asObjects.map(r => ({
           unitNumber: getField(r, unitAliases),
@@ -858,30 +863,43 @@ function updateTables(reservations, dueIn, available){
     if (available.length === 0){
       tbodyAvailCk.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-gray-500">Veuillez téléverser le fichier des unités disponibles.</td></tr>`;
     } else {
-      available.forEach(v => {
-        const fuelIcon = (() => {
-          const lv = (v.currentFuel || '').toString().trim();
-          return (lv && lv.toUpperCase() !== 'F') ? `<span title="Carburant non plein" class="text-red-600">⛽</span>` : '';
-        })();
-        const odoTxt = (v.currentOdo != null && isFinite(v.currentOdo))
-          ? `${Math.round(v.currentOdo).toLocaleString()}`
-          : '—';
-        const plateTxt = v.plate ? String(v.plate) : '';
+    available.forEach(v => {
+      const fuelIcon = (() => {
+        const lv = (v.currentFuel || '').toString().trim();
+        return (lv && lv.toUpperCase() !== 'F') ? `<span title="Carburant non plein" class="text-red-600">⛽</span>` : '';
+      })();
 
-        const tr = document.createElement('tr');
-        tr.className = 'border-b hover:bg-gray-50';
-        tr.innerHTML = `
-          <td class="px-3 py-2 font-medium">${v.unitNumber || 'N/A'}</td>
-          <td class="px-3 py-2">${plateTxt}</td>
-          <td class="px-3 py-2">${(v.class || '—').toUpperCase()}</td>
-          <td class="px-3 py-2">${fuelIcon} <span class="text-xs text-gray-500">${v.currentFuel || ''}</span></td>
-          <td class="px-3 py-2">${odoTxt}</td>
-          <td class="px-3 py-2 text-center">
-            <input type="checkbox" class="theory-check" data-unit="${v.unitNumber}">
-          </td>
-        `;
-        tbodyAvailCk.appendChild(tr);
-      });
+      const odoTxt   = (v.currentOdo != null && isFinite(v.currentOdo))
+        ? `${Math.round(v.currentOdo).toLocaleString()}`
+        : '—';
+
+      const plateTxt = v.plate ? String(v.plate) : '';
+
+      const tr = document.createElement('tr');
+      tr.className = 'border-b hover:bg-gray-50';
+      tr.innerHTML = `
+        <td class="px-4 py-2 font-medium">${v.unitNumber || 'N/A'}</td>
+        <td class="px-4 py-2">${plateTxt}</td>
+        <td class="px-4 py-2">${(v.class || '—').toUpperCase()}</td>
+        <td class="px-4 py-2">${odoTxt}</td>
+        <td class="px-4 py-2">${fuelIcon} <span class="text-xs text-gray-500">${v.currentFuel || ''}</span></td>
+        <td class="px-4 py-2">
+          <input type="number" class="w-28 border rounded px-2 py-1 text-sm" placeholder="KM réel">
+        </td>
+        <td class="px-4 py-2">
+          <select class="border rounded px-2 py-1 text-sm">
+            <option value="">—</option>
+            <option>F</option><option>3/4</option><option>1/2</option><option>1/4</option><option>E</option>
+          </select>
+        </td>
+        <td class="px-4 py-2 text-center">
+          <input type="checkbox" class="theory-check" data-unit="${v.unitNumber}">
+        </td>
+        <td class="px-4 py-2 text-xs text-gray-400">—</td>
+      `;
+      tbodyAvailCk.appendChild(tr);
+    });
+
     }
   }
 
